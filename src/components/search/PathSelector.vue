@@ -1,10 +1,12 @@
 <script setup lang="ts">
-import { ref } from 'vue';
+import { ref, onMounted, onUnmounted } from 'vue';
 import { FolderIcon, DocumentIcon } from '@heroicons/vue/24/outline';
 import { open } from '@tauri-apps/plugin-dialog';
+import { getCurrentWebview } from '@tauri-apps/api/webview';
+import type { UnlistenFn } from '@tauri-apps/api/event';
 import HistoryDropdown from './HistoryDropdown.vue';
 
-defineProps<{
+const props = defineProps<{
   modelValue: string;
   pathHistory: string[];
 }>();
@@ -17,6 +19,31 @@ const emit = defineEmits<{
 
 const isDragging = ref(false);
 const showPathHistory = ref(false);
+let dragDropUnlisten: UnlistenFn | null = null;
+
+onMounted(async () => {
+  dragDropUnlisten = await getCurrentWebview().onDragDropEvent((event) => {
+    if (event.payload.type === 'hover') {
+      isDragging.value = true;
+    } else if (event.payload.type === 'drop') {
+      const paths = event.payload.paths;
+      if (paths.length > 0) {
+        emit('update:modelValue', paths[0]);
+        emit('save-history');
+      }
+      isDragging.value = false;
+    } else {
+      // cancelled
+      isDragging.value = false;
+    }
+  });
+});
+
+onUnmounted(() => {
+  if (dragDropUnlisten) {
+    dragDropUnlisten();
+  }
+});
 
 async function selectPath() {
   const selected = await open({
@@ -40,33 +67,6 @@ async function selectFolder() {
   }
 }
 
-function handleDragOver(event: DragEvent) {
-  event.preventDefault();
-  isDragging.value = true;
-}
-
-function handleDragLeave() {
-  isDragging.value = false;
-}
-
-function handleDrop(event: DragEvent) {
-  event.preventDefault();
-  isDragging.value = false;
-
-  const items = event.dataTransfer?.items;
-  if (!items) return;
-
-  const item = items[0];
-  if (item.kind === 'file') {
-    const file = item.getAsFile();
-    if (file) {
-      // @ts-ignore
-      emit('update:modelValue', file.path);
-      emit('save-history');
-    }
-  }
-}
-
 function handleHistorySelect(path: string) {
   emit('update:modelValue', path);
   showPathHistory.value = false;
@@ -74,12 +74,7 @@ function handleHistorySelect(path: string) {
 </script>
 
 <template>
-  <div
-    class="relative"
-    @dragover="handleDragOver"
-    @dragleave="handleDragLeave"
-    @drop="handleDrop"
-  >
+  <div class="relative">
     <div
       class="flex gap-1"
       :class="{ 'ring-1 ring-blue-500 ring-opacity-50': isDragging }"
@@ -90,6 +85,7 @@ function handleHistorySelect(path: string) {
           type="text"
           placeholder="Select file or folder to search..."
           class="w-full h-9 px-2 text-sm border rounded-md focus:ring-1 focus:ring-blue-500 focus:border-blue-500"
+          readonly
           @focus="showPathHistory = true"
         />
 
