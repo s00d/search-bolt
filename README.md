@@ -2,6 +2,9 @@
 
 A modern, visual search tool built with Tauri 2, Vue 3, and Tailwind CSS that provides a user-friendly interface for ripgrep, the blazingly fast search tool.
 
+![SearchBolt Screenshot](https://github.com/s00d/search-bolt/blob/main/public/Screenshot.png?raw=true)
+
+
 ## Features
 
 - 🔍 Fast file content search using ripgrep
