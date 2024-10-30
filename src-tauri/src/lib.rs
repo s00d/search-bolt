@@ -1,129 +1,71 @@
-use std::process::Command;
 use serde::{Deserialize, Serialize};
+use tauri::AppHandle;
+use tauri_plugin_shell::ShellExt;
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct SearchResult {
-    path: String,
-    line_number: u32,
-    content: String,
+    pub path: String,
+    pub line_number: u32,
+    pub content: String,
 }
 
 #[derive(Debug, Deserialize)]
 pub struct SearchParams {
-    path: String,
-    engine: String,
-    pattern: String,
-    case_sensitive: bool,
-    whole_word: bool,
-    use_regex: bool,
-    max_depth: Option<u32>,
-    file_types: Vec<String>,
-    exclude_patterns: Vec<String>,
+    pub path: String,
+    pub engine: String,
+    pub pattern: String,
+    pub case_sensitive: bool,
+    pub whole_word: bool,
+    pub use_regex: bool,
+    pub max_depth: Option<u32>,
+    pub file_types: Vec<String>,
+    pub exclude_patterns: Vec<String>,
 }
 
-#[derive(Debug, Deserialize)]
-#[serde(tag = "type")]
-enum RipgrepOutput {
-    #[serde(rename = "match")]
-    Match {
-        data: MatchData,
-    },
-    // #[serde(rename = "begin")]
-    // Begin { data: BeginData },
-    // #[serde(rename = "end")]
-    // End { data: EndData },
-    #[serde(rename = "summary")]
-    Summary { data: SummaryData },
-}
-
-#[derive(Debug, Deserialize)]
-struct MatchData {
-    path: PathData,
-    lines: TextData,
-    line_number: u64,
-}
-
-
-#[derive(Debug, Deserialize)]
-struct BeginData {
-    path: PathData,
-}
-
-#[derive(Debug, Deserialize)]
-struct EndData {
-    path: PathData,
-    stats: SearchStats,
-}
-
-#[derive(Debug, Deserialize)]
-struct SummaryData {
-    elapsed_total: Elapsed,
-    stats: SearchStats,
-}
-
-#[derive(Debug, Deserialize)]
-struct PathData {
-    text: String,
-}
-
-#[derive(Debug, Deserialize)]
-struct TextData {
-    text: String,
-}
-
-#[derive(Debug, Deserialize)]
-struct SearchStats {
-    elapsed: Elapsed,
-    searches: u64,
-    searches_with_match: u64,
-    bytes_searched: u64,
-    bytes_printed: u64,
-    matched_lines: u64,
-    matches: u64,
-}
-
-#[derive(Debug, Deserialize)]
-struct Elapsed {
-    secs: u64,
-    nanos: u64,
-    human: String,
-}
-
-
-async fn search_with_ripgrep(params: SearchParams) -> Result<Vec<SearchResult>, String> {
-    let mut cmd = Command::new("rg");
-
-    cmd.arg("--json")
+async fn search_with_ripgrep(app: AppHandle, params: SearchParams) -> Result<Vec<SearchResult>, String> {
+    let command = app.shell().command("rg")
+        .arg("--json")
         .arg("--line-number");
 
-    if !params.case_sensitive {
-        cmd.arg("-i");
-    }
+    let command = if !params.case_sensitive {
+        command.args(["-i"])
+    } else {
+        command
+    };
 
-    if params.whole_word {
-        cmd.arg("-w");
-    }
+    let command = if params.whole_word {
+        command.args(["-w"])
+    } else {
+        command
+    };
 
-    if !params.use_regex {
-        cmd.arg("--fixed-strings");
-    }
+    let command = if !params.use_regex {
+        command.args(["--fixed-strings"])
+    } else {
+        command
+    };
 
-    if let Some(depth) = params.max_depth {
-        cmd.arg("--max-depth").arg(depth.to_string());
-    }
+    let command = if let Some(depth) = params.max_depth {
+        let depth_str = depth.to_string();
+        command.args(["--max-depth", &depth_str])
+    } else {
+        command
+    };
 
-    for file_type in params.file_types {
-        cmd.arg("-g").arg(file_type);
-    }
+    // Handle file types
+    let command = params.file_types.iter().fold(command, |cmd, file_type| {
+        cmd.args(["-g", file_type])
+    });
 
-    for pattern in params.exclude_patterns {
-        cmd.arg("--glob").arg(format!("!{}", pattern));
-    }
+    // Handle exclude patterns
+    let command = params.exclude_patterns.iter().fold(command, |cmd, pattern| {
+        let glob_pattern = format!("!{}", pattern);
+        cmd.args(["--glob", &glob_pattern])
+    });
 
-    cmd.arg(&params.pattern)
-        .arg(&params.path);
+    let command = command.arg(&params.pattern).arg(&params.path);
 
-    let output = cmd.output().map_err(|e| e.to_string())?;
+    let output = command.output().await.map_err(|e| e.to_string())?;
 
     if !output.status.success() && !output.status.code().map_or(false, |c| c == 1) {
         let error = String::from_utf8_lossy(&output.stderr);
@@ -148,31 +90,33 @@ async fn search_with_ripgrep(params: SearchParams) -> Result<Vec<SearchResult>, 
     Ok(results)
 }
 
-async fn search_with_grep(params: SearchParams) -> Result<Vec<SearchResult>, String> {
-    let mut cmd = Command::new("grep");
+async fn search_with_grep(app: AppHandle, params: SearchParams) -> Result<Vec<SearchResult>, String> {
+    let command = app.shell().command("grep");
 
-    cmd.arg("--line-number")  // Show line numbers
-        .arg("--with-filename"); // Show filenames
+    let mut args = vec!["--line-number", "--with-filename"];
 
     if !params.case_sensitive {
-        cmd.arg("--ignore-case");
+        args.push("--ignore-case");
     }
 
     if params.whole_word {
-        cmd.arg("--word-regexp");
+        args.push("--word-regexp");
     }
 
     if params.use_regex {
-        cmd.arg("--extended-regexp");
+        args.push("--extended-regexp");
     } else {
-        cmd.arg("--fixed-strings");
+        args.push("--fixed-strings");
     }
 
-    // Add pattern and path
-    cmd.arg(&params.pattern)
-        .arg(&params.path);
+    args.push(&params.pattern);
+    args.push(&params.path);
 
-    let output = cmd.output().map_err(|e| e.to_string())?;
+    let output = command
+        .args(args)
+        .output()
+        .await
+        .map_err(|e| e.to_string())?;
 
     if !output.status.success() && !output.status.code().map_or(false, |c| c == 1) {
         let error = String::from_utf8_lossy(&output.stderr);
@@ -199,22 +143,75 @@ async fn search_with_grep(params: SearchParams) -> Result<Vec<SearchResult>, Str
     Ok(results)
 }
 
-pub async fn perform_search(params: SearchParams) -> Result<Vec<SearchResult>, String> {
+
+#[derive(Debug, Deserialize)]
+#[serde(tag = "type")]
+enum RipgrepOutput {
+    #[serde(rename = "match")]
+    Match {
+        data: MatchData,
+    },
+    #[serde(rename = "summary")]
+    Summary { data: SummaryData },
+}
+
+#[derive(Debug, Deserialize)]
+struct MatchData {
+    path: PathData,
+    lines: TextData,
+    line_number: u64,
+}
+
+#[derive(Debug, Deserialize)]
+struct PathData {
+    text: String,
+}
+
+#[derive(Debug, Deserialize)]
+struct TextData {
+    text: String,
+}
+
+#[derive(Debug, Deserialize)]
+struct SummaryData {
+    elapsed_total: Elapsed,
+    stats: SearchStats,
+}
+
+#[derive(Debug, Deserialize)]
+struct SearchStats {
+    elapsed: Elapsed,
+    searches: u64,
+    searches_with_match: u64,
+    bytes_searched: u64,
+    bytes_printed: u64,
+    matched_lines: u64,
+    matches: u64,
+}
+
+#[derive(Debug, Deserialize)]
+struct Elapsed {
+    secs: u64,
+    nanos: u64,
+    human: String,
+}
+
+pub async fn perform_search(app: AppHandle, params: SearchParams) -> Result<Vec<SearchResult>, String> {
     match params.engine.as_str() {
-        "ripgrep" => search_with_ripgrep(params).await,
-        "grep" => search_with_grep(params).await,
+        "ripgrep" => search_with_ripgrep(app, params).await,
+        "grep" => search_with_grep(app, params).await,
         _ => Err("Unsupported search engine".to_string()),
     }
 }
 
-
 #[tauri::command]
-async fn search(params: SearchParams) -> Result<Vec<SearchResult>, String> {
-    perform_search(params).await
+async fn search(app: AppHandle, params: SearchParams) -> Result<Vec<SearchResult>, String> {
+    perform_search(app, params).await
 }
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
+    let _ = fix_path_env::fix();
     tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_shell::init())
