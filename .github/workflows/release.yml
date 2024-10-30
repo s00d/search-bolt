@@ -78,6 +78,13 @@ jobs:
           releaseName: 'RipGrep Search v${{ github.ref_name }}'
           releaseBody: |
             See the assets to download this version and install.
+            
+            ### mac OS Sign
+  
+            ```bash
+            chmod +x /Applications/search-bolt.app
+            xattr -cr /Applications/search-bolt.app
+            codesign --force --deep --sign - /Applications/search-bolt.app
             ```
           releaseDraft: true
           prerelease: false
