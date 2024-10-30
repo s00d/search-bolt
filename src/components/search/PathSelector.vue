@@ -6,7 +6,7 @@ import { getCurrentWebview } from '@tauri-apps/api/webview';
 import type { UnlistenFn } from '@tauri-apps/api/event';
 import HistoryDropdown from './HistoryDropdown.vue';
 
-const props = defineProps<{
+defineProps<{
   modelValue: string;
   pathHistory: string[];
 }>();
@@ -23,6 +23,7 @@ let dragDropUnlisten: UnlistenFn | null = null;
 
 onMounted(async () => {
   dragDropUnlisten = await getCurrentWebview().onDragDropEvent((event) => {
+    // @ts-ignore
     if (event.payload.type === 'hover') {
       isDragging.value = true;
     } else if (event.payload.type === 'drop') {
