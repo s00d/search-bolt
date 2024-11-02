@@ -17,25 +17,17 @@ const emit = defineEmits<{
   'clear-history': [];
 }>();
 
-const isDragging = ref(false);
 const showPathHistory = ref(false);
 let dragDropUnlisten: UnlistenFn | null = null;
 
 onMounted(async () => {
   dragDropUnlisten = await getCurrentWebview().onDragDropEvent((event) => {
-    // @ts-ignore
-    if (event.payload.type === 'hover') {
-      isDragging.value = true;
-    } else if (event.payload.type === 'drop') {
+    if (event.payload.type === 'drop') {
       const paths = event.payload.paths;
       if (paths.length > 0) {
         emit('update:modelValue', paths[0]);
         emit('save-history');
       }
-      isDragging.value = false;
-    } else {
-      // cancelled
-      isDragging.value = false;
     }
   });
 });
@@ -78,7 +70,6 @@ function handleHistorySelect(path: string) {
   <div class="relative">
     <div
       class="flex gap-1"
-      :class="{ 'ring-1 ring-blue-500 ring-opacity-50': isDragging }"
     >
       <div class="relative flex-1">
         <input
@@ -86,7 +77,6 @@ function handleHistorySelect(path: string) {
           type="text"
           placeholder="Select file or folder to search..."
           class="w-full h-9 px-2 text-sm border rounded-md focus:ring-1 focus:ring-blue-500 focus:border-blue-500"
-          readonly
           @focus="showPathHistory = true"
         />
 
@@ -117,13 +107,6 @@ function handleHistorySelect(path: string) {
           <FolderIcon class="w-4 h-4" />
         </button>
       </div>
-    </div>
-
-    <div
-      v-if="isDragging"
-      class="absolute inset-0 bg-blue-50 bg-opacity-50 rounded-md flex items-center justify-center pointer-events-none"
-    >
-      <p class="text-blue-600 text-sm">Drop file or folder here</p>
     </div>
   </div>
 </template>

@@ -1,6 +1,11 @@
+[![Release](https://img.shields.io/badge/Download-Release-000081?style=for-the-badge)](https://github.com/s00d/search-bolt/releases/tag/v0.1.3)
+[![GitHub issues](https://img.shields.io/github/issues/s00d/tauri-plugin-serialplugin?style=for-the-badge)](https://github.com/s00d/search-bolt/issues)
+[![GitHub stars](https://img.shields.io/github/stars/s00d/tauri-plugin-serialplugin?style=for-the-badge)](https://github.com/s00d/search-bolt/stargazers)
+[![Donate](https://img.shields.io/badge/Donate-Donationalerts-ff4081?style=for-the-badge)](https://www.donationalerts.com/r/s00d88)
+
 # search bolt
 
-A modern, visual search tool built with Tauri 2, Vue 3, and Tailwind CSS that provides a user-friendly interface for ripgrep, the blazingly fast search tool.
+A modern, visual search tool built with Tauri 2, Vue 3, and Tailwind CSS that provides a user-friendly interface for ripgrep or grep, the blazingly fast search tool.
 
 ![SearchBolt Screenshot](https://github.com/s00d/search-bolt/blob/main/public/Screenshot.png?raw=true)
 

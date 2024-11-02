@@ -1,10 +1,12 @@
 <script setup lang="ts">
-import { ref, onMounted } from 'vue';
+import {ref, onMounted, onUnmounted} from 'vue';
 import { MagnifyingGlassIcon } from '@heroicons/vue/24/outline';
 import PathSelector from './search/PathSelector.vue';
 import PatternInput from './search/PatternInput.vue';
 import AdvancedOptions from './search/AdvancedOptions.vue';
 import SearchEngineSelector from './search/SearchEngineSelector.vue';
+import {getCurrentWebview} from "@tauri-apps/api/webview";
+import type {UnlistenFn} from "@tauri-apps/api/event";
 
 const MAX_HISTORY = 20;
 
@@ -37,9 +39,25 @@ const fileTypes = ref<string[]>([]);
 const excludePatterns = ref<string[]>([]);
 const pathHistory = ref<string[]>([]);
 const patternHistory = ref<string[]>([]);
+const isDragging = ref(false);
+let dragDropUnlisten: UnlistenFn | null = null;
 
-onMounted(() => {
+onMounted(async () => {
   loadHistory();
+
+  dragDropUnlisten = await getCurrentWebview().onDragDropEvent((event) => {
+    if (event.payload.type === 'enter' || event.payload.type === 'over') {
+      isDragging.value = true;
+    } else {
+      isDragging.value = false;
+    }
+  });
+});
+
+onUnmounted(() => {
+  if (dragDropUnlisten) {
+    dragDropUnlisten();
+  }
 });
 
 function loadHistory() {
@@ -101,7 +119,13 @@ function handleSearch() {
 </script>
 
 <template>
-  <div class="bg-white rounded-lg shadow-sm p-3 mb-4">
+  <div class="bg-white rounded-lg shadow-sm p-3 mb-4" :class="{ 'ring-1 ring-blue-500 ring-opacity-80': isDragging }">
+    <div
+      v-if="isDragging"
+      class="absolute inset-0 bg-blue-50 bg-opacity-50 rounded-md flex items-center justify-center pointer-events-none z-50"
+    >
+      <p class="text-blue-600 text-sm">Drop file or folder here</p>
+    </div>
     <div class="space-y-2">
       <div class="flex gap-2 items-start">
         <SearchEngineSelector v-model="searchEngine" />
