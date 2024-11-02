@@ -28,6 +28,7 @@ async function handleSearch(params: {
   isSearching.value = true;
   error.value = null;
   abortController = new AbortController();
+  results.value = [];
 
   try {
     results.value = await invoke('search', {

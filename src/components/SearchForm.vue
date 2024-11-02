@@ -25,6 +25,8 @@ const emit = defineEmits<{
     max_depth?: number;
     file_types: string[];
     exclude_patterns: string[];
+    max_results: number;
+    timeout_seconds: number;
   }];
   cancel: [];
 }>();
@@ -41,6 +43,9 @@ const excludePatterns = ref<string[]>([]);
 const pathHistory = ref<string[]>([]);
 const patternHistory = ref<string[]>([]);
 const isDragging = ref(false);
+const maxResults = ref(100);
+const timeoutSeconds = ref(60);
+
 let dragDropUnlisten: UnlistenFn | null = null;
 
 onMounted(async () => {
@@ -115,6 +120,8 @@ function handleSearch() {
     max_depth: maxDepth.value,
     file_types: fileTypes.value,
     exclude_patterns: excludePatterns.value,
+    max_results: maxResults.value,
+    timeout_seconds: timeoutSeconds.value,
   });
 }
 

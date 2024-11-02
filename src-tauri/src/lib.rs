@@ -1,4 +1,5 @@
 use serde::{Deserialize, Serialize};
+use std::time::{Duration, Instant};
 use tauri::AppHandle;
 use tauri_plugin_shell::ShellExt;
 
@@ -20,12 +21,27 @@ pub struct SearchParams {
     pub max_depth: Option<u32>,
     pub file_types: Vec<String>,
     pub exclude_patterns: Vec<String>,
+    #[serde(default = "default_max_results")]
+    pub max_results: usize,
+    #[serde(default = "default_timeout_seconds")]
+    pub timeout_seconds: u64,
+}
+
+fn default_max_results() -> usize {
+    100
+}
+
+fn default_timeout_seconds() -> u64 {
+    60
 }
 
 async fn search_with_ripgrep(app: AppHandle, params: SearchParams) -> Result<Vec<SearchResult>, String> {
+    let start_time = Instant::now();
     let command = app.shell().command("rg")
         .arg("--json")
-        .arg("--line-number");
+        .arg("--line-number")
+        .arg("--max-count")
+        .arg(params.max_results.to_string());
 
     let command = if !params.case_sensitive {
         command.args(["-i"])
@@ -52,12 +68,10 @@ async fn search_with_ripgrep(app: AppHandle, params: SearchParams) -> Result<Vec
         command
     };
 
-    // Handle file types
     let command = params.file_types.iter().fold(command, |cmd, file_type| {
         cmd.args(["-g", file_type])
     });
 
-    // Handle exclude patterns
     let command = params.exclude_patterns.iter().fold(command, |cmd, pattern| {
         let glob_pattern = format!("!{}", pattern);
         cmd.args(["--glob", &glob_pattern])
@@ -65,9 +79,18 @@ async fn search_with_ripgrep(app: AppHandle, params: SearchParams) -> Result<Vec
 
     let command = command.arg(&params.pattern).arg(&params.path);
 
+    println!("Executing command: {:?}", command);
+
     let output = command.output().await.map_err(|e| e.to_string())?;
 
-    if !output.status.success() && !output.status.code().map_or(false, |c| c == 1) {
+    if start_time.elapsed() > Duration::from_secs(params.timeout_seconds) {
+        return Err(format!("Search timeout: operation took longer than {} seconds", params.timeout_seconds));
+    }
+
+    if output.status.code() == Some(1) {
+        return Ok(Vec::new());
+    }
+    if !output.status.success() {
         let error = String::from_utf8_lossy(&output.stderr);
         return Err(format!("ripgrep search failed: {}", error));
     }
@@ -76,6 +99,10 @@ async fn search_with_ripgrep(app: AppHandle, params: SearchParams) -> Result<Vec
     let mut results = Vec::new();
 
     for line in stdout.lines() {
+        if start_time.elapsed() > Duration::from_secs(params.timeout_seconds) {
+            return Err(format!("Search timeout: operation took longer than {} seconds", params.timeout_seconds));
+        }
+
         if let Ok(output) = serde_json::from_str::<RipgrepOutput>(line) {
             if let RipgrepOutput::Match { data } = output {
                 results.push(SearchResult {
@@ -83,6 +110,10 @@ async fn search_with_ripgrep(app: AppHandle, params: SearchParams) -> Result<Vec
                     line_number: data.line_number as u32,
                     content: data.lines.text,
                 });
+
+                if results.len() >= params.max_results {
+                    break;
+                }
             }
         }
     }
@@ -91,9 +122,11 @@ async fn search_with_ripgrep(app: AppHandle, params: SearchParams) -> Result<Vec
 }
 
 async fn search_with_grep(app: AppHandle, params: SearchParams) -> Result<Vec<SearchResult>, String> {
-    let command = app.shell().command("grep");
+    let start_time = Instant::now();
+    let mut command = app.shell().command("grep");
 
-    let mut args = vec!["--line-number", "--with-filename"];
+    let max_count_str = params.max_results.to_string();
+    let mut args = vec!["--line-number", "--with-filename", "--max-count", &max_count_str];
 
     if !params.case_sensitive {
         args.push("--ignore-case");
@@ -112,13 +145,22 @@ async fn search_with_grep(app: AppHandle, params: SearchParams) -> Result<Vec<Se
     args.push(&params.pattern);
     args.push(&params.path);
 
+    let command = command.args(args);
+    println!("Executing command: {:?}", command);
+
     let output = command
-        .args(args)
         .output()
         .await
         .map_err(|e| e.to_string())?;
 
-    if !output.status.success() && !output.status.code().map_or(false, |c| c == 1) {
+    if start_time.elapsed() > Duration::from_secs(params.timeout_seconds) {
+        return Err(format!("Search timeout: operation took longer than {} seconds", params.timeout_seconds));
+    }
+
+    if output.status.code() == Some(1) {
+        return Ok(Vec::new());
+    }
+    if !output.status.success() {
         let error = String::from_utf8_lossy(&output.stderr);
         return Err(format!("grep search failed: {}", error));
     }
@@ -127,6 +169,10 @@ async fn search_with_grep(app: AppHandle, params: SearchParams) -> Result<Vec<Se
     let mut results = Vec::new();
 
     for line in stdout.lines() {
+        if start_time.elapsed() > Duration::from_secs(params.timeout_seconds) {
+            return Err(format!("Search timeout: operation took longer than {} seconds", params.timeout_seconds));
+        }
+
         if let Some((path, rest)) = line.split_once(':') {
             if let Some((line_number_str, content)) = rest.split_once(':') {
                 if let Ok(line_number) = line_number_str.parse::<u32>() {
@@ -135,6 +181,10 @@ async fn search_with_grep(app: AppHandle, params: SearchParams) -> Result<Vec<Se
                         line_number,
                         content: content.to_string(),
                     });
+
+                    if results.len() >= params.max_results {
+                        break;
+                    }
                 }
             }
         }
@@ -142,7 +192,6 @@ async fn search_with_grep(app: AppHandle, params: SearchParams) -> Result<Vec<Se
 
     Ok(results)
 }
-
 
 #[derive(Debug, Deserialize)]
 #[serde(tag = "type")]

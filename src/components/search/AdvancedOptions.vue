@@ -11,6 +11,8 @@ const props = defineProps<{
   maxDepth?: number;
   fileTypes: string[];
   excludePatterns: string[];
+  maxResults: number;
+  timeoutSeconds: number;
 }>();
 
 const emit = defineEmits<{
@@ -20,6 +22,8 @@ const emit = defineEmits<{
   'update:maxDepth': [value: number | undefined];
   'update:fileTypes': [value: string[]];
   'update:excludePatterns': [value: string[]];
+  'update:maxResults': [value: number];
+  'update:timeoutSeconds': [value: number];
 }>();
 
 const fileTypeInput = ref('');
@@ -74,15 +78,39 @@ function removeExcludePattern(pattern: string) {
         />
       </div>
 
-      <div class="flex items-center gap-2">
-        <span class="text-gray-700 whitespace-nowrap">Max depth:</span>
-        <input
-          :value="maxDepth"
-          type="number"
-          min="1"
-          class="w-20 h-7 px-2 border rounded focus:ring-1 focus:ring-blue-500 focus:border-blue-500"
-          @input="$emit('update:maxDepth', ($event.target as HTMLInputElement).value ? Number(($event.target as HTMLInputElement).value) : undefined)"
-        />
+      <div class="grid grid-cols-1 sm:grid-cols-3 gap-2">
+        <div class="flex items-center gap-2">
+          <span class="text-gray-700 whitespace-nowrap">Max depth:</span>
+          <input
+            :value="maxDepth"
+            type="number"
+            min="1"
+            class="w-20 h-7 px-2 border rounded focus:ring-1 focus:ring-blue-500 focus:border-blue-500"
+            @input="$emit('update:maxDepth', ($event.target as HTMLInputElement).value ? Number(($event.target as HTMLInputElement).value) : undefined)"
+          />
+        </div>
+
+        <div class="flex items-center gap-2">
+          <span class="text-gray-700 whitespace-nowrap">Max results:</span>
+          <input
+            :value="maxResults ?? 100"
+            type="number"
+            min="1"
+            class="w-20 h-7 px-2 border rounded focus:ring-1 focus:ring-blue-500 focus:border-blue-500"
+            @input="$emit('update:maxResults', Number(($event.target as HTMLInputElement).value) || 100)"
+          />
+        </div>
+
+        <div class="flex items-center gap-2">
+          <span class="text-gray-700 whitespace-nowrap">Timeout (s):</span>
+          <input
+            :value="timeoutSeconds ?? 60"
+            type="number"
+            min="1"
+            class="w-20 h-7 px-2 border rounded focus:ring-1 focus:ring-blue-500 focus:border-blue-500"
+            @input="$emit('update:timeoutSeconds', Number(($event.target as HTMLInputElement).value) || 60)"
+          />
+        </div>
       </div>
 
       <div>
