@@ -2,7 +2,7 @@
 import { ref } from 'vue';
 import SearchForm from './components/SearchForm.vue';
 import SearchResults from './components/SearchResults.vue';
-import {invoke} from "@tauri-apps/api/core";
+import { invoke } from "@tauri-apps/api/core";
 
 interface SearchResult {
   path: string;
@@ -13,6 +13,7 @@ interface SearchResult {
 const results = ref<SearchResult[]>([]);
 const isSearching = ref(false);
 const error = ref<string | null>(null);
+let abortController: AbortController | null = null;
 
 async function handleSearch(params: {
   path: string;
@@ -26,13 +27,29 @@ async function handleSearch(params: {
 }) {
   isSearching.value = true;
   error.value = null;
+  abortController = new AbortController();
 
   try {
-    results.value = await invoke('search', {params});
+    results.value = await invoke('search', {
+      params,
+      signal: abortController.signal
+    });
   } catch (e) {
+    if ((e as Error)?.name === 'AbortError') {
+      results.value = [];
+      return;
+    }
     error.value = e as string;
     results.value = [];
   } finally {
+    isSearching.value = false;
+    abortController = null;
+  }
+}
+
+function handleCancel() {
+  if (abortController) {
+    abortController.abort();
     isSearching.value = false;
   }
 }
@@ -44,6 +61,7 @@ async function handleSearch(params: {
       <SearchForm
         :is-searching="isSearching"
         @search="handleSearch"
+        @cancel="handleCancel"
       />
 
       <div v-if="error" class="bg-red-50 border-l-4 border-red-400 p-4 mb-2">

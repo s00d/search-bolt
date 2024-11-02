@@ -16,28 +16,34 @@ const props = defineProps<{
 
 const hasResults = computed(() => props.results.length > 0);
 
-function highlightCode(content: string): string {
-  // Сначала раскодируем HTML-сущности
-  const decodedContent = content
+function cleanUpCode(content: string): string {
+  return content
     // Декодируем Unicode escape-последовательности со слешем
     .replace(/\\\\u([0-9a-fA-F]{4})/g, (_, code) => String.fromCharCode(parseInt(code, 16)))
     // Декодируем обычные Unicode escape-последовательности
     .replace(/\\u([0-9a-fA-F]{4})/g, (_, code) => String.fromCharCode(parseInt(code, 16)))
     // Декодируем слеши в начале символов
     .replace(/\\([^\\])/g, '$1');
+}
+
+function highlightCode(content: string): string {
+  // Сначала раскодируем HTML-сущности
+  const decodedContent = cleanUpCode(content);
 
   return hljs.highlightAuto(decodedContent).value;
 }
 
 function copyToClipboard(text: string) {
+  const decodedContent = cleanUpCode(text);
   // Копируем оригинальный текст без экранирования
-  navigator.clipboard.writeText(text
-    // Декодируем Unicode escape-последовательности со слешем
-    .replace(/\\\\u([0-9a-fA-F]{4})/g, (_, code) => String.fromCharCode(parseInt(code, 16)))
-    // Декодируем обычные Unicode escape-последовательности
-    .replace(/\\u([0-9a-fA-F]{4})/g, (_, code) => String.fromCharCode(parseInt(code, 16)))
-    // Декодируем слеши в начале символов
-    .replace(/\\([^\\])/g, '$1'));
+  navigator.clipboard.writeText(decodedContent);
+}
+
+function copyAllResults() {
+  const allContent = props.results
+    .map(result => cleanUpCode(result.content))
+    .join('\n');
+  copyToClipboard(allContent);
 }
 
 function truncatePath(path: string): string {
@@ -52,6 +58,12 @@ function truncatePath(path: string): string {
   <div v-if="hasResults" class="bg-white rounded-lg shadow-md p-4">
     <div class="flex justify-between items-center mb-3">
       <h2 class="text-lg font-medium">Results ({{ results.length }})</h2>
+      <button
+        @click="copyAllResults"
+        class="px-3 py-1 text-sm bg-blue-500 text-white rounded hover:bg-blue-600 transition-colors"
+      >
+        Copy All Results
+      </button>
     </div>
 
     <div class="space-y-2">

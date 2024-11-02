@@ -26,6 +26,7 @@ const emit = defineEmits<{
     file_types: string[];
     exclude_patterns: string[];
   }];
+  cancel: [];
 }>();
 
 const searchPath = ref('');
@@ -116,6 +117,10 @@ function handleSearch() {
     exclude_patterns: excludePatterns.value,
   });
 }
+
+function handleCancel() {
+  emit('cancel');
+}
 </script>
 
 <template>
@@ -149,12 +154,19 @@ function handleSearch() {
         />
 
         <button
-          @click="handleSearch"
-          class="px-3 h-9 bg-blue-500 text-white rounded-md hover:bg-blue-600 flex items-center gap-1.5 disabled:opacity-50 text-sm"
-          :disabled="isSearching || !searchPath || !searchPattern"
+          @click="isSearching ? handleCancel() : handleSearch()"
+          class="px-3 h-9 text-white rounded-md hover:bg-opacity-90 flex items-center gap-1.5 disabled:opacity-50 text-sm min-w-[120px] justify-center transition-colors"
+          :class="isSearching ? 'bg-red-500 hover:bg-red-600' : 'bg-blue-500 hover:bg-blue-600'"
+          :disabled="(!isSearching && (!searchPath || !searchPattern))"
         >
-          <MagnifyingGlassIcon class="w-4 h-4" />
-          {{ isSearching ? 'Searching...' : 'Search' }}
+          <template v-if="isSearching">
+            <div class="animate-spin w-4 h-4 border-2 border-white border-t-transparent rounded-full"></div>
+            Cancel
+          </template>
+          <template v-else>
+            <MagnifyingGlassIcon class="w-4 h-4" />
+            Search
+          </template>
         </button>
       </div>
 
@@ -169,3 +181,18 @@ function handleSearch() {
     </div>
   </div>
 </template>
+
+<style scoped>
+.animate-spin {
+  animation: spin 1s linear infinite;
+}
+
+@keyframes spin {
+  from {
+    transform: rotate(0deg);
+  }
+  to {
+    transform: rotate(360deg);
+  }
+}
+</style>
