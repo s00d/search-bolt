@@ -184,6 +184,8 @@ function handleCancel() {
         v-model:max-depth="maxDepth"
         v-model:file-types="fileTypes"
         v-model:exclude-patterns="excludePatterns"
+        v-model:max-results="maxResults"
+        v-model:timeout-seconds="timeoutSeconds"
       />
     </div>
   </div>
