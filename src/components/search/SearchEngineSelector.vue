@@ -35,7 +35,7 @@ const isOpen = ref(false);
   <div class="relative">
     <button
       type="button"
-      class="flex items-center gap-1.5 px-2 h-9 text-xs bg-gray-100 hover:bg-gray-200 rounded"
+      class="flex items-center gap-1.5 px-2 h-9 text-xs bg-gray-100 hover:bg-blue-600 rounded"
       @click="isOpen = !isOpen"
     >
       <span class="font-medium">{{ engines.find(e => e.id === modelValue)?.name || 'Select Engine' }}</span>
@@ -53,12 +53,12 @@ const isOpen = ref(false);
         <button
           v-for="engine in engines"
           :key="engine.id"
-          class="w-full px-3 py-2 text-left hover:bg-gray-50 flex flex-col"
+          class="w-full px-3 py-2 text-left hover:bg-blue-600 hover:text-white flex flex-col"
           :class="{ 'bg-blue-50': engine.id === modelValue }"
           @click="emit('update:modelValue', engine.id); isOpen = false"
         >
           <span class="text-sm font-medium">{{ engine.name }}</span>
-          <span class="text-xs text-gray-500">{{ engine.description }}</span>
+          <span class="text-xs text-gray-400">{{ engine.description }}</span>
         </button>
       </div>
     </div>

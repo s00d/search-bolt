@@ -1,7 +1,5 @@
 <script setup lang="ts">
 import { computed } from 'vue';
-import hljs from 'highlight.js';
-import 'highlight.js/styles/github-dark.css';
 
 interface SearchResult {
   path: string;
@@ -26,69 +24,54 @@ function cleanUpCode(content: string): string {
     .replace(/\\([^\\])/g, '$1');
 }
 
-function highlightCode(content: string): string {
-  // Сначала раскодируем HTML-сущности
-  const decodedContent = cleanUpCode(content);
-
-  return hljs.highlightAuto(decodedContent).value;
-}
-
 function copyToClipboard(text: string) {
   const decodedContent = cleanUpCode(text);
-  // Копируем оригинальный текст без экранирования
   navigator.clipboard.writeText(decodedContent);
 }
 
 function copyAllResults() {
-  const allContent = props.results
-    .map(result => cleanUpCode(result.content))
-    .join('\n');
+  const allContent = props.results.map(result => cleanUpCode(result.content)).join('\n');
   copyToClipboard(allContent);
 }
 
 function truncatePath(path: string): string {
-  const maxLength = 50;
-  return path.length > maxLength
-    ? '...' + path.slice(-(maxLength - 3))
-    : path;
+  const maxLength = 100;
+  return path.length > maxLength ? '...' + path.slice(-(maxLength - 3)) : path;
 }
 </script>
 
 <template>
-  <div v-if="hasResults" class="bg-white rounded-lg shadow-md p-4">
-    <div class="flex justify-between items-center mb-3">
-      <h2 class="text-lg font-medium">Results ({{ results.length }})</h2>
+  <div v-if="hasResults" class="bg-white rounded-lg shadow-md p-3">
+    <div class="flex justify-between items-center mb-2">
+      <h2 class="text-sm font-medium">Results ({{ results.length }})</h2>
       <button
         @click="copyAllResults"
-        class="px-3 py-1 text-sm bg-blue-500 text-white rounded hover:bg-blue-600 transition-colors"
+        class="px-2 py-1 text-xs bg-blue-500 text-white rounded hover:bg-blue-600 transition-colors"
       >
-        Copy All Results
+        Copy All
       </button>
     </div>
 
-    <div class="space-y-2">
+    <div class="space-y-1">
       <div
         v-for="(result, index) in results"
         :key="index"
-        class="border rounded-lg p-3 hover:border-gray-300 transition-colors"
+        class="border p-2 hover:border-gray-300 transition-colors"
       >
-        <div class="flex items-center justify-between text-sm mb-1.5">
-          <div class="flex items-center gap-2 min-w-0">
-            <span class="text-gray-600 truncate" :title="result.path">
-              {{ truncatePath(result.path) }}
-            </span>
-            <span class="text-gray-400 shrink-0">:{{ result.line_number }}</span>
-          </div>
+        <div class="flex justify-between text-xs mb-1">
+          <span class="text-gray-500 truncate" :title="result.path">
+            {{ truncatePath(result.path) }}:{{ result.line_number }}
+          </span>
           <button
             @click="copyToClipboard(result.content)"
-            class="text-blue-500 hover:text-blue-600 shrink-0 ml-2"
+            class="text-blue-500 hover:text-white hover:bg-blue-600"
           >
             Copy
           </button>
         </div>
 
-        <div class="relative">
-          <pre class="bg-gray-900 rounded p-2.5 overflow-x-auto whitespace-pre-wrap break-all"><code v-html="highlightCode(result.content)" class="text-sm leading-relaxed"></code></pre>
+        <div class="result bg-gray-100 p-1.5 text-xs text-gray-300 overflow-x-auto">
+          <div class="data block text-gray-900">{{ cleanUpCode(result.content) }}</div>
         </div>
       </div>
     </div>
@@ -96,24 +79,34 @@ function truncatePath(path: string): string {
 
   <div
     v-else-if="!isSearching"
-    class="text-center text-gray-500 mt-6"
+    class="text-center text-gray-500 mt-4 text-sm"
   >
     No results found
   </div>
 </template>
 
 <style scoped>
-pre {
-  max-height: 300px;
+.result {
+  max-height: 200px;
+  padding: 0.5rem;
+  border-radius: 4px;
+  overflow-y: auto;
 }
 
-pre code {
+.result .data {
+  font-size: 0.875rem;
+  line-height: 1.25rem;
   word-wrap: break-word;
   white-space: pre-wrap;
-  color: #d9d9d9;
+  font-weight: bold;
+  margin: 0;
 }
 
-:deep(.hljs) {
-  padding: 0;
+div:hover {
+  border-color: #5e5e5e;
+}
+
+:deep(.text-gray-300) {
+  color: #d4d4d4;
 }
 </style>

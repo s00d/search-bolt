@@ -94,14 +94,14 @@ function handleHistorySelect(path: string) {
       <div class="flex gap-1">
         <button
           @click="selectPath"
-          class="p-2 bg-gray-100 hover:bg-gray-200 rounded-md"
+          class="p-2 bg-gray-100 hover:bg-blue-600 rounded-md"
           title="Select File"
         >
           <DocumentIcon class="w-4 h-4" />
         </button>
         <button
           @click="selectFolder"
-          class="p-2 bg-gray-100 hover:bg-gray-200 rounded-md"
+          class="p-2 bg-gray-100 hover:bg-blue-600 rounded-md"
           title="Select Folder"
         >
           <FolderIcon class="w-4 h-4" />

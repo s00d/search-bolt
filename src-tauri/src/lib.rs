@@ -2,6 +2,7 @@ use serde::{Deserialize, Serialize};
 use std::time::{Duration, Instant};
 use tauri::AppHandle;
 use tauri_plugin_shell::ShellExt;
+use std::path::Path;
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct SearchResult {
@@ -140,6 +141,12 @@ async fn search_with_grep(app: AppHandle, params: SearchParams) -> Result<Vec<Se
         args.push("--extended-regexp");
     } else {
         args.push("--fixed-strings");
+    }
+
+    // Check if the path is a directory or a file
+    let path = Path::new(&params.path);
+    if path.is_dir() {
+        args.push("-r"); // Add recursive search flag
     }
 
     args.push(&params.pattern);

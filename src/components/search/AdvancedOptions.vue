@@ -2,6 +2,7 @@
 import { ref } from 'vue';
 import { AdjustmentsHorizontalIcon } from '@heroicons/vue/24/outline';
 import BaseSwitch from '../BaseSwitch.vue';
+import ThemeToggle from './ThemeToggle.vue';
 import BaseDisclosure from '../BaseDisclosure.vue';
 
 const props = defineProps<{
@@ -76,6 +77,8 @@ function removeExcludePattern(pattern: string) {
           @update:model-value="$emit('update:useRegex', $event)"
           label="Use regex"
         />
+
+        <ThemeToggle />
       </div>
 
       <div class="grid grid-cols-1 sm:grid-cols-3 gap-2">
@@ -124,7 +127,7 @@ function removeExcludePattern(pattern: string) {
           />
           <button
             @click="addFileType"
-            class="px-2 h-7 bg-gray-100 hover:bg-gray-200 rounded"
+            class="px-2 h-7 bg-gray-100 hover:bg-blue-600 rounded p-0"
           >
             Add
           </button>
@@ -157,7 +160,7 @@ function removeExcludePattern(pattern: string) {
           />
           <button
             @click="addExcludePattern"
-            class="px-2 h-7 bg-gray-100 hover:bg-gray-200 rounded"
+            class="px-2 h-7 bg-gray-100 hover:bg-blue-600 rounded p-0"
           >
             Add
           </button>

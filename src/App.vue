@@ -57,7 +57,7 @@ function handleCancel() {
 </script>
 
 <template>
-  <div class="min-h-screen bg-gray-100 p-6">
+  <div class="min-h-screen bg-gray-100 p-3">
     <div class="max-w-6xl mx-auto">
       <SearchForm
         :is-searching="isSearching"

@@ -2,12 +2,6 @@
 @tailwind components;
 @tailwind utilities;
 
-:root {
-    font-family: Inter, system-ui, Avenir, Helvetica, Arial, sans-serif;
-    line-height: 1.5;
-    font-weight: 400;
-}
-
 body {
     margin: 0;
     min-width: 320px;
@@ -16,4 +10,130 @@ body {
 
 .hljs {
     background: transparent !important;
+}
+
+
+:root {
+    font-family: Inter, system-ui, Avenir, Helvetica, Arial, sans-serif;
+    line-height: 1.5;
+    font-weight: 400;
+
+    color-scheme: light dark;
+    color: #213547;
+    background-color: #ffffff;
+
+    font-synthesis: none;
+    text-rendering: optimizeLegibility;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+}
+
+/* Dark mode styles */
+:root.dark {
+    color: rgba(255, 255, 255, 0.87);
+    background-color: #242424;
+}
+
+a {
+    font-weight: 500;
+    color: #646cff;
+    text-decoration: inherit;
+}
+a:hover {
+    color: #535bf2;
+}
+
+
+h1 {
+    font-size: 3.2em;
+    line-height: 1.1;
+}
+
+button {
+    border-radius: 8px;
+    border: 1px solid transparent;
+    padding: 0.6em 1.2em;
+    font-size: 1em;
+    font-weight: 500;
+    font-family: inherit;
+    background-color: #f9f9f9;
+    cursor: pointer;
+    transition: border-color 0.25s;
+}
+
+.dark .disabled-switch {
+    background-color: #1a1a1a;
+}
+.dark button {
+    background-color: #1a1a1a;
+}
+
+button:hover {
+    border-color: #646cff;
+}
+button:focus,
+button:focus-visible {
+    outline: 4px auto -webkit-focus-ring-color;
+}
+
+.card {
+    padding: 2em;
+}
+
+#app {
+    max-width: 1280px;
+    margin: 0 auto;
+    text-align: left;
+}
+
+/* Dark mode specific styles */
+.dark .bg-gray-100 {
+    background-color: #1a1a1a;
+}
+
+.dark .bg-white,
+.dark .bg-red-50 {
+    background-color: #2d2d2d;
+}
+
+.dark .text-gray-700 {
+    color: #d1d5db;
+}
+
+.dark .border-gray-300 {
+    border-color: #4b5563;
+}
+
+.dark input::placeholder {
+    color: #9ca3af;
+}
+
+.dark select {
+    background-color: #374151;
+    border-color: #4b5563;
+}
+
+.dark option {
+    background-color: #374151;
+    color: #d1d5db;
+}
+
+.dark .result {
+    @apply bg-gray-800 border-gray-600 text-white;
+}
+
+.dark .result .data {
+    @apply bg-gray-800 border-gray-600 text-white;
+}
+
+input {
+    @apply px-3 py-2 rounded-md border transition-colors duration-200;
+    @apply bg-white border-gray-300;
+    @apply focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500;
+}
+
+/* Dark mode input styles */
+.dark input {
+    @apply bg-gray-800 border-gray-600 text-white;
+    @apply focus:ring-indigo-400 focus:border-indigo-400;
 }
