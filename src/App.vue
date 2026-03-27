@@ -2,7 +2,7 @@
 import { nextTick, onMounted, onUnmounted, ref, watch } from 'vue';
 import SearchForm from './components/SearchForm.vue';
 import SearchResults from './components/SearchResults.vue';
-import { invoke } from "@tauri-apps/api/core";
+import { invoke } from '@tauri-apps/api/core';
 import { LogicalSize, getCurrentWindow } from '@tauri-apps/api/window';
 import type { UnlistenFn } from '@tauri-apps/api/event';
 import { attachConsole, error as logError, info as logInfo } from '@tauri-apps/plugin-log';
@@ -60,6 +60,37 @@ interface AppSettings {
   tray: {
     menu_on_left_click: boolean;
   };
+  behavior: {
+    search_as_you_type: boolean;
+    search_debounce_ms: number;
+  };
+  search_profiles: Array<{
+    id: string;
+    name: string;
+    file_types: string[];
+    exclude_patterns: string[];
+  }>;
+  saved_searches: Array<{
+    id: string;
+    name: string;
+    path: string;
+    pattern: string;
+    case_sensitive: boolean;
+    whole_word: boolean;
+    use_regex: boolean;
+    literal: boolean;
+    multiline: boolean;
+    before_context: number;
+    after_context: number;
+    engine: 'rust_regex' | 'pcre2';
+    binary_policy: 'skip' | 'lossy';
+    max_depth?: number;
+    file_types: string[];
+    exclude_patterns: string[];
+    page_size: number;
+    max_results: number;
+    timeout_seconds: number;
+  }>;
   editor: {
     mode: 'system' | 'preset' | 'custom_template';
     preset:
@@ -118,6 +149,29 @@ let abortController: AbortController | null = null;
 const searchSessionId = ref<string | null>(null);
 const nextCursor = ref<number | null>(null);
 const hasMoreServerResults = ref(false);
+const activeResultIndex = ref(0);
+const activeProfileId = ref('everything');
+const latestSearchParams = ref<{
+  path: string;
+  pattern: string;
+  case_sensitive: boolean;
+  whole_word: boolean;
+  use_regex: boolean;
+  literal: boolean;
+  multiline: boolean;
+  before_context: number;
+  after_context: number;
+  engine: 'rust_regex' | 'pcre2';
+  binary_policy: 'skip' | 'lossy';
+  max_depth?: number;
+  file_types: string[];
+  exclude_patterns: string[];
+  page_size: number;
+  max_results: number;
+  timeout_seconds: number;
+} | null>(null);
+let searchDebounceTimer: ReturnType<typeof setTimeout> | null = null;
+let searchRequestSeq = 0;
 let unlistenQuickActivated: UnlistenFn | null = null;
 let unlistenQuickFocus: UnlistenFn | null = null;
 let detachLogConsole: (() => void) | null = null;
@@ -145,11 +199,11 @@ const FALLBACK_SETTINGS: AppSettings = {
   },
   quick_window_sizes: {
     width: 980,
-    idle_height: 520,
-    searching_height: 560,
-    no_results_height: 620,
-    error_height: 680,
-    results_height: 780,
+    idle_height: 760,
+    searching_height: 820,
+    no_results_height: 905,
+    error_height: 995,
+    results_height: 1145,
   },
   history: {
     limit: 20,
@@ -157,6 +211,44 @@ const FALLBACK_SETTINGS: AppSettings = {
   tray: {
     menu_on_left_click: true,
   },
+  behavior: {
+    search_as_you_type: true,
+    search_debounce_ms: 300,
+  },
+  search_profiles: [
+    {
+      id: 'code',
+      name: 'Code',
+      file_types: [],
+      exclude_patterns: [
+        'node_modules/**',
+        '.git/**',
+        'dist/**',
+        'build/**',
+        'target/**',
+        'vendor/**',
+      ],
+    },
+    {
+      id: 'frontend',
+      name: 'Frontend',
+      file_types: ['*.ts', '*.tsx', '*.js', '*.jsx', '*.vue', '*.css', '*.scss', '*.html'],
+      exclude_patterns: ['node_modules/**', 'dist/**', 'coverage/**', '.git/**'],
+    },
+    {
+      id: 'rust',
+      name: 'Rust',
+      file_types: ['*.rs', '*.toml'],
+      exclude_patterns: ['target/**', '.git/**'],
+    },
+    {
+      id: 'everything',
+      name: 'Everything',
+      file_types: [],
+      exclude_patterns: [],
+    },
+  ],
+  saved_searches: [],
   editor: {
     mode: 'system',
     preset: 'vs_code',
@@ -202,7 +294,7 @@ async function computeFallbackPath(): Promise<string> {
   const strategy = currentSettings().prefill_strategy;
   if (strategy === 'history_then_clipboard') {
     const history = await computePathFromHistoryThenClipboard();
-    return history || await computePathFromClipboardThenHistory();
+    return history || (await computePathFromClipboardThenHistory());
   }
   if (strategy === 'clipboard_then_history') {
     return computePathFromClipboardThenHistory();
@@ -214,7 +306,7 @@ async function computeFallbackPath(): Promise<string> {
 async function prefillQuickPath() {
   try {
     const detected = await invoke<string | null>('detect_active_path');
-    prefillPath.value = detected?.trim() || await computeFallbackPath();
+    prefillPath.value = detected?.trim() || (await computeFallbackPath());
   } catch {
     prefillPath.value = await computeFallbackPath();
   } finally {
@@ -226,7 +318,9 @@ async function prefillQuickPath() {
 
 function focusPatternInputWithRetry() {
   const tryFocus = () => {
-    const patternInput = document.querySelector<HTMLInputElement>('input[placeholder="Search pattern..."]');
+    const patternInput = document.querySelector<HTMLInputElement>(
+      'input[placeholder="Search pattern..."]'
+    );
     if (patternInput) {
       patternInput.focus();
       patternInput.select();
@@ -298,6 +392,57 @@ function handleGlobalKeydown(event: KeyboardEvent) {
     event.preventDefault();
     event.stopPropagation();
     invoke('hide_quick_search_window').catch(() => {});
+    return;
+  }
+  if (!results.value.length) return;
+  const target = event.target as HTMLElement | null;
+  const isTypingField = target?.tagName === 'INPUT' || target?.tagName === 'TEXTAREA';
+
+  if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === 'c') {
+    const selected =
+      results.value[Math.max(0, Math.min(activeResultIndex.value, results.value.length - 1))];
+    if (selected) {
+      navigator.clipboard.writeText(`${selected.path}:${selected.line_number}`).catch(() => {});
+      event.preventDefault();
+    }
+    return;
+  }
+  if (!isTypingField && event.key === 'ArrowDown') {
+    activeResultIndex.value = Math.min(results.value.length - 1, activeResultIndex.value + 1);
+    event.preventDefault();
+    return;
+  }
+  if (!isTypingField && event.key === 'ArrowUp') {
+    activeResultIndex.value = Math.max(0, activeResultIndex.value - 1);
+    event.preventDefault();
+    return;
+  }
+  if (!isTypingField && event.key === 'Enter') {
+    const selected =
+      results.value[Math.max(0, Math.min(activeResultIndex.value, results.value.length - 1))];
+    if (selected) {
+      invoke('open_result_in_editor', {
+        path: selected.path,
+        line: selected.line_number,
+        column: 1,
+      }).catch(() => {});
+      event.preventDefault();
+    }
+    return;
+  }
+  if (event.key === 'Tab') {
+    const fields = [
+      document.querySelector<HTMLInputElement>('[data-field-id="path-input"]'),
+      document.querySelector<HTMLInputElement>('[data-field-id="pattern-input"]'),
+      document.querySelector<HTMLInputElement>('[data-field-id="local-filter"]'),
+    ].filter(Boolean) as HTMLInputElement[];
+    if (!fields.length) return;
+    const active = document.activeElement as HTMLInputElement | null;
+    const idx = fields.findIndex((item) => item === active);
+    const next = fields[(idx + 1 + fields.length) % fields.length];
+    next.focus();
+    next.select();
+    event.preventDefault();
   }
 }
 
@@ -320,6 +465,11 @@ async function handleSearch(params: {
   max_results: number;
   timeout_seconds: number;
 }) {
+  const requestSeq = ++searchRequestSeq;
+  if (searchSessionId.value) {
+    await invoke('search_cancel', { sessionId: searchSessionId.value }).catch(() => {});
+    searchSessionId.value = null;
+  }
   isSearching.value = true;
   error.value = null;
   hasSearched.value = true;
@@ -332,6 +482,7 @@ async function handleSearch(params: {
   lastGlobalPattern.value = params.pattern;
   lastGlobalCaseSensitive.value = params.case_sensitive;
   lastGlobalUseRegex.value = params.use_regex;
+  latestSearchParams.value = params;
 
   try {
     const start = await invoke<{
@@ -344,8 +495,12 @@ async function handleSearch(params: {
       };
     }>('search_start', {
       params,
-      signal: abortController.signal
+      signal: abortController.signal,
     });
+    if (requestSeq !== searchRequestSeq) {
+      await invoke('search_cancel', { sessionId: start.session_id }).catch(() => {});
+      return;
+    }
     searchSessionId.value = start.session_id;
     results.value = start.page.items;
     hasMoreServerResults.value = start.page.has_more;
@@ -359,12 +514,19 @@ async function handleSearch(params: {
     error.value = e as string;
     results.value = [];
   } finally {
-    isSearching.value = false;
-    abortController = null;
+    if (requestSeq === searchRequestSeq) {
+      isSearching.value = false;
+      abortController = null;
+    }
   }
 }
 
 function handleCancel() {
+  searchRequestSeq += 1;
+  if (searchDebounceTimer) {
+    clearTimeout(searchDebounceTimer);
+    searchDebounceTimer = null;
+  }
   if (abortController) {
     abortController.abort();
     isSearching.value = false;
@@ -375,6 +537,96 @@ function handleCancel() {
     nextCursor.value = null;
     hasMoreServerResults.value = false;
   }
+}
+
+function scheduleIncrementalSearch(params: {
+  path: string;
+  pattern: string;
+  case_sensitive: boolean;
+  whole_word: boolean;
+  use_regex: boolean;
+  literal: boolean;
+  multiline: boolean;
+  before_context: number;
+  after_context: number;
+  engine: 'rust_regex' | 'pcre2';
+  binary_policy: 'skip' | 'lossy';
+  max_depth?: number;
+  file_types: string[];
+  exclude_patterns: string[];
+  page_size: number;
+  max_results: number;
+  timeout_seconds: number;
+}) {
+  latestSearchParams.value = params;
+  const behavior = currentSettings().behavior;
+  if (!behavior.search_as_you_type) return;
+  if (!params.path.trim() || !params.pattern.trim()) return;
+  if (searchDebounceTimer) {
+    clearTimeout(searchDebounceTimer);
+  }
+  const debounceMs = Math.min(400, Math.max(200, Number(behavior.search_debounce_ms) || 300));
+  searchDebounceTimer = setTimeout(() => {
+    handleSearch(params).catch(() => {});
+  }, debounceMs);
+}
+
+function applySearchProfile(profileId: string) {
+  activeProfileId.value = profileId;
+  const draft = settingsDraft.value;
+  if (!draft) return;
+  const profile = draft.search_profiles.find((item) => item.id === profileId);
+  if (!profile) return;
+  draft.search_defaults.file_types = [...profile.file_types];
+  draft.search_defaults.exclude_patterns = [...profile.exclude_patterns];
+  saveSettings().catch(() => {});
+}
+
+function saveCurrentPreset(
+  name: string,
+  params: {
+    path: string;
+    pattern: string;
+    case_sensitive: boolean;
+    whole_word: boolean;
+    use_regex: boolean;
+    literal: boolean;
+    multiline: boolean;
+    before_context: number;
+    after_context: number;
+    engine: 'rust_regex' | 'pcre2';
+    binary_policy: 'skip' | 'lossy';
+    max_depth?: number;
+    file_types: string[];
+    exclude_patterns: string[];
+    page_size: number;
+    max_results: number;
+    timeout_seconds: number;
+  }
+) {
+  if (!settingsDraft.value) return;
+  const id = `preset-${Date.now()}`;
+  settingsDraft.value.saved_searches.unshift({ id, name, ...params });
+  saveSettings().catch(() => {});
+}
+
+function applySavedPreset(presetId: string) {
+  const preset = settingsDraft.value?.saved_searches.find((item) => item.id === presetId);
+  if (!preset || !latestSearchParams.value) return;
+  const merged = {
+    ...latestSearchParams.value,
+    ...preset,
+  };
+  latestSearchParams.value = merged;
+  handleSearch(merged).catch(() => {});
+}
+
+function deleteSavedPreset(presetId: string) {
+  if (!settingsDraft.value) return;
+  settingsDraft.value.saved_searches = settingsDraft.value.saved_searches.filter(
+    (item) => item.id !== presetId
+  );
+  saveSettings().catch(() => {});
 }
 
 async function handleLoadMore() {
@@ -407,10 +659,12 @@ async function loadSettings() {
     const loaded = await invoke<AppSettings>('get_settings');
     settings.value = loaded;
     settingsDraft.value = JSON.parse(JSON.stringify(loaded));
+    activeProfileId.value = loaded.search_profiles[0]?.id ?? 'everything';
   } catch (e) {
     settingsError.value = String(e);
     settings.value = FALLBACK_SETTINGS;
     settingsDraft.value = JSON.parse(JSON.stringify(FALLBACK_SETTINGS));
+    activeProfileId.value = 'everything';
   }
 }
 
@@ -418,60 +672,97 @@ function buildSanitizedSettingsDraft(): AppSettings | null {
   if (!settingsDraft.value) return null;
   const draft = JSON.parse(JSON.stringify(settingsDraft.value)) as AppSettings;
   // Normalize numeric settings to avoid storing invalid/NaN values.
-  draft.history.limit = Math.max(1, Number.isFinite(draft.history.limit) ? Math.floor(draft.history.limit) : 20);
+  draft.history.limit = Math.max(
+    1,
+    Number.isFinite(draft.history.limit) ? Math.floor(draft.history.limit) : 20
+  );
   draft.search_defaults.max_results = Math.max(
     1,
-    Number.isFinite(draft.search_defaults.max_results) ? Math.floor(draft.search_defaults.max_results) : 100
+    Number.isFinite(draft.search_defaults.max_results)
+      ? Math.floor(draft.search_defaults.max_results)
+      : 100
   );
   draft.search_defaults.timeout_seconds = Math.max(
     1,
-    Number.isFinite(draft.search_defaults.timeout_seconds) ? Math.floor(draft.search_defaults.timeout_seconds) : 60
+    Number.isFinite(draft.search_defaults.timeout_seconds)
+      ? Math.floor(draft.search_defaults.timeout_seconds)
+      : 60
   );
   draft.search_defaults.page_size = Math.max(
     1,
-    Number.isFinite(draft.search_defaults.page_size) ? Math.floor(draft.search_defaults.page_size) : 50
+    Number.isFinite(draft.search_defaults.page_size)
+      ? Math.floor(draft.search_defaults.page_size)
+      : 50
   );
   draft.search_defaults.before_context = Math.max(
     0,
-    Number.isFinite(draft.search_defaults.before_context) ? Math.floor(draft.search_defaults.before_context) : 0
+    Number.isFinite(draft.search_defaults.before_context)
+      ? Math.floor(draft.search_defaults.before_context)
+      : 0
   );
   draft.search_defaults.after_context = Math.max(
     0,
-    Number.isFinite(draft.search_defaults.after_context) ? Math.floor(draft.search_defaults.after_context) : 0
+    Number.isFinite(draft.search_defaults.after_context)
+      ? Math.floor(draft.search_defaults.after_context)
+      : 0
   );
   draft.quick_window_sizes.width = Math.max(
     600,
-    Number.isFinite(draft.quick_window_sizes.width) ? Math.floor(draft.quick_window_sizes.width) : 980
+    Number.isFinite(draft.quick_window_sizes.width)
+      ? Math.floor(draft.quick_window_sizes.width)
+      : 980
   );
   draft.quick_window_sizes.idle_height = Math.max(
     300,
-    Number.isFinite(draft.quick_window_sizes.idle_height) ? Math.floor(draft.quick_window_sizes.idle_height) : 520
+    Number.isFinite(draft.quick_window_sizes.idle_height)
+      ? Math.floor(draft.quick_window_sizes.idle_height)
+      : 520
   );
   draft.quick_window_sizes.searching_height = Math.max(
     300,
-    Number.isFinite(draft.quick_window_sizes.searching_height) ? Math.floor(draft.quick_window_sizes.searching_height) : 560
+    Number.isFinite(draft.quick_window_sizes.searching_height)
+      ? Math.floor(draft.quick_window_sizes.searching_height)
+      : 560
   );
   draft.quick_window_sizes.no_results_height = Math.max(
     300,
-    Number.isFinite(draft.quick_window_sizes.no_results_height) ? Math.floor(draft.quick_window_sizes.no_results_height) : 620
+    Number.isFinite(draft.quick_window_sizes.no_results_height)
+      ? Math.floor(draft.quick_window_sizes.no_results_height)
+      : 620
   );
   draft.quick_window_sizes.error_height = Math.max(
     300,
-    Number.isFinite(draft.quick_window_sizes.error_height) ? Math.floor(draft.quick_window_sizes.error_height) : 680
+    Number.isFinite(draft.quick_window_sizes.error_height)
+      ? Math.floor(draft.quick_window_sizes.error_height)
+      : 680
   );
   draft.quick_window_sizes.results_height = Math.max(
     300,
-    Number.isFinite(draft.quick_window_sizes.results_height) ? Math.floor(draft.quick_window_sizes.results_height) : 780
+    Number.isFinite(draft.quick_window_sizes.results_height)
+      ? Math.floor(draft.quick_window_sizes.results_height)
+      : 780
   );
+  draft.behavior.search_debounce_ms = Math.max(
+    200,
+    Math.min(
+      400,
+      Number.isFinite(draft.behavior.search_debounce_ms)
+        ? Math.floor(draft.behavior.search_debounce_ms)
+        : 300
+    )
+  );
+  if (!Array.isArray(draft.search_profiles) || draft.search_profiles.length === 0) {
+    draft.search_profiles = FALLBACK_SETTINGS.search_profiles;
+  }
+  if (!Array.isArray(draft.saved_searches)) {
+    draft.saved_searches = [];
+  }
   draft.hotkey = draft.hotkey.trim();
   if (!draft.hotkey) {
     settingsError.value = 'Hotkey cannot be empty.';
     return null;
   }
-  if (
-    draft.editor.mode === 'custom_template' &&
-    !draft.editor.custom_template.includes('{path}')
-  ) {
+  if (draft.editor.mode === 'custom_template' && !draft.editor.custom_template.includes('{path}')) {
     settingsError.value = 'Custom template must include {path}.';
     return null;
   }
@@ -516,7 +807,23 @@ function codeToHotkeyKey(event: KeyboardEvent): string {
   if (event.code.startsWith('Digit')) return event.code.slice(5);
   if (/^F\d{1,2}$/.test(event.code)) return event.code;
   const key = event.key.length === 1 ? event.key.toUpperCase() : event.key;
-  const allowed = new Set(['Space', 'Enter', 'Tab', 'Escape', 'Backspace', 'Insert', 'Delete', 'Home', 'End', 'PageUp', 'PageDown', 'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight']);
+  const allowed = new Set([
+    'Space',
+    'Enter',
+    'Tab',
+    'Escape',
+    'Backspace',
+    'Insert',
+    'Delete',
+    'Home',
+    'End',
+    'PageUp',
+    'PageDown',
+    'ArrowUp',
+    'ArrowDown',
+    'ArrowLeft',
+    'ArrowRight',
+  ]);
   return allowed.has(key) ? key : '';
 }
 
@@ -579,9 +886,8 @@ function addDefaultIncludePattern() {
 
 function removeDefaultIncludePattern(pattern: string) {
   if (!settingsDraft.value) return;
-  settingsDraft.value.search_defaults.file_types = settingsDraft.value.search_defaults.file_types.filter(
-    (p) => p !== pattern
-  );
+  settingsDraft.value.search_defaults.file_types =
+    settingsDraft.value.search_defaults.file_types.filter((p) => p !== pattern);
   saveSettings().catch(() => {});
 }
 
@@ -598,9 +904,8 @@ function addDefaultExcludePattern() {
 
 function removeDefaultExcludePattern(pattern: string) {
   if (!settingsDraft.value) return;
-  settingsDraft.value.search_defaults.exclude_patterns = settingsDraft.value.search_defaults.exclude_patterns.filter(
-    (p) => p !== pattern
-  );
+  settingsDraft.value.search_defaults.exclude_patterns =
+    settingsDraft.value.search_defaults.exclude_patterns.filter((p) => p !== pattern);
   saveSettings().catch(() => {});
 }
 
@@ -635,6 +940,10 @@ onMounted(async () => {
 });
 
 onUnmounted(() => {
+  if (searchDebounceTimer) {
+    clearTimeout(searchDebounceTimer);
+    searchDebounceTimer = null;
+  }
   if (unlistenQuickActivated) {
     unlistenQuickActivated();
   }
@@ -680,11 +989,20 @@ watch(
   }
 );
 
+watch(
+  () => results.value,
+  () => {
+    activeResultIndex.value = 0;
+  }
+);
 </script>
 
 <template>
   <div class="min-h-screen bg-slate-900 text-slate-100 p-3">
-    <div v-if="!isQuickWindow" class="max-w-4xl mx-auto rounded-lg border border-slate-700 bg-slate-900/80 p-4 space-y-4">
+    <div
+      v-if="!isQuickWindow"
+      class="max-w-4xl mx-auto rounded-lg border border-slate-700 bg-slate-900/80 p-4 space-y-4"
+    >
       <div class="flex items-center justify-between">
         <h2 class="text-sm font-semibold text-cyan-300 uppercase tracking-wide">Settings</h2>
         <button
@@ -696,7 +1014,11 @@ watch(
         </button>
       </div>
 
-      <div v-if="settingsDraft" class="grid grid-cols-1 md:grid-cols-2 gap-3 text-xs" @change.capture="saveSettings">
+      <div
+        v-if="settingsDraft"
+        class="grid grid-cols-1 md:grid-cols-2 gap-3 text-xs"
+        @change.capture="saveSettings"
+      >
         <div class="rounded border border-slate-700 bg-slate-800/60 p-3 space-y-2">
           <p class="font-semibold text-cyan-300">Hotkey</p>
           <div class="flex gap-2">
@@ -717,13 +1039,20 @@ watch(
           </div>
           <p class="text-slate-400">Focus input and press desired key combination.</p>
           <p v-if="isCapturingHotkey" class="text-amber-300">Capturing...</p>
-          <p v-else-if="lastCapturedHotkey" class="text-cyan-300">Captured: {{ lastCapturedHotkey }}</p>
+          <p v-else-if="lastCapturedHotkey" class="text-cyan-300">
+            Captured: {{ lastCapturedHotkey }}
+          </p>
         </div>
 
         <div class="rounded border border-slate-700 bg-slate-800/60 p-3 space-y-2">
           <p class="font-semibold text-cyan-300">Startup & Tray</p>
-          <label class="flex items-center gap-2"><input v-model="settingsDraft.autostart" type="checkbox" /> Autostart</label>
-          <label class="flex items-center gap-2"><input v-model="settingsDraft.tray.menu_on_left_click" type="checkbox" /> Tray menu on left click</label>
+          <label class="flex items-center gap-2"
+            ><input v-model="settingsDraft.autostart" type="checkbox" /> Autostart</label
+          >
+          <label class="flex items-center gap-2"
+            ><input v-model="settingsDraft.tray.menu_on_left_click" type="checkbox" /> Tray menu on
+            left click</label
+          >
         </div>
 
         <div class="rounded border border-slate-700 bg-slate-800/60 p-3 space-y-2">
@@ -733,46 +1062,52 @@ watch(
               v-model="settingsDraft.editor.mode"
               class="h-8 px-2 pr-8 border border-slate-700 rounded bg-slate-900 text-slate-100 w-full appearance-none focus:outline-none focus:ring-2 focus:ring-cyan-500/40 focus:border-cyan-500"
             >
-            <option value="system">System default app</option>
-            <option value="preset">Preset editor</option>
-            <option value="custom_template">Custom template</option>
+              <option value="system">System default app</option>
+              <option value="preset">Preset editor</option>
+              <option value="custom_template">Custom template</option>
             </select>
-            <span class="pointer-events-none absolute right-2 top-1/2 -translate-y-1/2 text-slate-400 text-[10px]">▼</span>
+            <span
+              class="pointer-events-none absolute right-2 top-1/2 -translate-y-1/2 text-slate-400 text-[10px]"
+              >▼</span
+            >
           </div>
-          
+
           <div v-if="settingsDraft.editor.mode === 'preset'" class="relative">
-          <select
-            v-model="settingsDraft.editor.preset"
-            class="h-8 px-2 pr-8 border border-slate-700 rounded bg-slate-900 text-slate-100 w-full appearance-none focus:outline-none focus:ring-2 focus:ring-cyan-500/40 focus:border-cyan-500"
-          >
-            <option value="vs_code">VS Code</option>
-            <option value="vs_code_insiders">VS Code Insiders</option>
-            <option value="vs_codium">VSCodium</option>
-            <option value="cursor">Cursor</option>
-            <option value="windsurf">Windsurf</option>
-            <option value="zed">Zed</option>
-            <option value="sublime">Sublime Text</option>
-            <option value="vim">Vim</option>
-            <option value="neo_vim">NeoVim</option>
-            <option value="emacs">Emacs</option>
-            <option value="helix">Helix</option>
-            <option value="nano">Nano</option>
-            <option value="text_mate">TextMate (line only)</option>
-            <option value="notepad_plus_plus">Notepad++</option>
-            <option value="xcode">Xcode (line only)</option>
-            <option value="jet_brains">JetBrains IDE (auto, `idea`)</option>
-            <option value="jet_brains_intellij">JetBrains IntelliJ (`idea`)</option>
-            <option value="jet_brains_web_storm">JetBrains WebStorm (`webstorm`)</option>
-            <option value="jet_brains_php_storm">JetBrains PhpStorm (`phpstorm`)</option>
-            <option value="jet_brains_py_charm">JetBrains PyCharm (`pycharm`)</option>
-            <option value="jet_brains_ruby_mine">JetBrains RubyMine (`rubymine`)</option>
-            <option value="jet_brains_go_land">JetBrains GoLand (`goland`)</option>
-            <option value="jet_brains_c_lion">JetBrains CLion (`clion`)</option>
-            <option value="jet_brains_rider">JetBrains Rider (`rider`)</option>
-            <option value="jet_brains_data_grip">JetBrains DataGrip (`datagrip`)</option>
-            <option value="jet_brains_android_studio">JetBrains Android Studio (`studio`)</option>
-          </select>
-            <span class="pointer-events-none absolute right-2 top-1/2 -translate-y-1/2 text-slate-400 text-[10px]">▼</span>
+            <select
+              v-model="settingsDraft.editor.preset"
+              class="h-8 px-2 pr-8 border border-slate-700 rounded bg-slate-900 text-slate-100 w-full appearance-none focus:outline-none focus:ring-2 focus:ring-cyan-500/40 focus:border-cyan-500"
+            >
+              <option value="vs_code">VS Code</option>
+              <option value="vs_code_insiders">VS Code Insiders</option>
+              <option value="vs_codium">VSCodium</option>
+              <option value="cursor">Cursor</option>
+              <option value="windsurf">Windsurf</option>
+              <option value="zed">Zed</option>
+              <option value="sublime">Sublime Text</option>
+              <option value="vim">Vim</option>
+              <option value="neo_vim">NeoVim</option>
+              <option value="emacs">Emacs</option>
+              <option value="helix">Helix</option>
+              <option value="nano">Nano</option>
+              <option value="text_mate">TextMate (line only)</option>
+              <option value="notepad_plus_plus">Notepad++</option>
+              <option value="xcode">Xcode (line only)</option>
+              <option value="jet_brains">JetBrains IDE (auto, `idea`)</option>
+              <option value="jet_brains_intellij">JetBrains IntelliJ (`idea`)</option>
+              <option value="jet_brains_web_storm">JetBrains WebStorm (`webstorm`)</option>
+              <option value="jet_brains_php_storm">JetBrains PhpStorm (`phpstorm`)</option>
+              <option value="jet_brains_py_charm">JetBrains PyCharm (`pycharm`)</option>
+              <option value="jet_brains_ruby_mine">JetBrains RubyMine (`rubymine`)</option>
+              <option value="jet_brains_go_land">JetBrains GoLand (`goland`)</option>
+              <option value="jet_brains_c_lion">JetBrains CLion (`clion`)</option>
+              <option value="jet_brains_rider">JetBrains Rider (`rider`)</option>
+              <option value="jet_brains_data_grip">JetBrains DataGrip (`datagrip`)</option>
+              <option value="jet_brains_android_studio">JetBrains Android Studio (`studio`)</option>
+            </select>
+            <span
+              class="pointer-events-none absolute right-2 top-1/2 -translate-y-1/2 text-slate-400 text-[10px]"
+              >▼</span
+            >
           </div>
           <input
             v-if="settingsDraft.editor.mode === 'custom_template'"
@@ -780,8 +1115,12 @@ watch(
             class="w-full h-8 px-2 border border-slate-700 rounded bg-slate-900"
             placeholder='code -g "{path}:{line}:{column}"'
           />
-          <p class="text-slate-400">Template placeholders: <code>{path}</code>, <code>{line}</code>, <code>{column}</code>.</p>
-          <p class="text-[11px] text-slate-500">Test button creates a temporary demo file and opens it in the configured editor.</p>
+          <p class="text-slate-400">
+            Template placeholders: <code>{path}</code>, <code>{line}</code>, <code>{column}</code>.
+          </p>
+          <p class="text-[11px] text-slate-500">
+            Test button creates a temporary demo file and opens it in the configured editor.
+          </p>
           <button
             type="button"
             class="h-8 px-3 rounded border border-slate-600 bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs"
@@ -789,14 +1128,25 @@ watch(
           >
             Test editor launch
           </button>
-          <p v-if="editorTestStatus" class="text-[11px] text-slate-300 break-all">{{ editorTestStatus }}</p>
+          <p v-if="editorTestStatus" class="text-[11px] text-slate-300 break-all">
+            {{ editorTestStatus }}
+          </p>
         </div>
 
         <div class="rounded border border-slate-700 bg-slate-800/60 p-3 space-y-2">
           <p class="font-semibold text-cyan-300">Search defaults</p>
-          <label class="flex items-center gap-2"><input v-model="settingsDraft.search_defaults.case_sensitive" type="checkbox" /> Case sensitive</label>
-          <label class="flex items-center gap-2"><input v-model="settingsDraft.search_defaults.whole_word" type="checkbox" /> Whole word</label>
-          <label class="flex items-center gap-2"><input v-model="settingsDraft.search_defaults.use_regex" type="checkbox" /> Use regex</label>
+          <label class="flex items-center gap-2"
+            ><input v-model="settingsDraft.search_defaults.case_sensitive" type="checkbox" /> Case
+            sensitive</label
+          >
+          <label class="flex items-center gap-2"
+            ><input v-model="settingsDraft.search_defaults.whole_word" type="checkbox" /> Whole
+            word</label
+          >
+          <label class="flex items-center gap-2"
+            ><input v-model="settingsDraft.search_defaults.use_regex" type="checkbox" /> Use
+            regex</label
+          >
           <div class="grid grid-cols-1 gap-2">
             <label class="space-y-1">
               <span class="text-slate-300">Max results</span>
@@ -807,7 +1157,9 @@ watch(
                 class="h-8 px-2 border border-slate-700 rounded bg-slate-900 w-full"
                 placeholder="100"
               />
-              <span class="text-[11px] text-slate-500">Maximum number of matches returned by one search.</span>
+              <span class="text-[11px] text-slate-500"
+                >Maximum number of matches returned by one search.</span
+              >
             </label>
             <label class="space-y-1">
               <span class="text-slate-300">Timeout (seconds)</span>
@@ -818,7 +1170,9 @@ watch(
                 class="h-8 px-2 border border-slate-700 rounded bg-slate-900 w-full"
                 placeholder="60"
               />
-              <span class="text-[11px] text-slate-500">Stop search if it runs longer than this limit.</span>
+              <span class="text-[11px] text-slate-500"
+                >Stop search if it runs longer than this limit.</span
+              >
             </label>
           </div>
         </div>
@@ -828,27 +1182,57 @@ watch(
           <div class="grid grid-cols-1 gap-2">
             <label class="space-y-1">
               <span class="text-slate-300">Window width (px)</span>
-              <input v-model.number="settingsDraft.quick_window_sizes.width" type="number" min="600" class="h-8 px-2 border border-slate-700 rounded bg-slate-900 w-full" />
+              <input
+                v-model.number="settingsDraft.quick_window_sizes.width"
+                type="number"
+                min="600"
+                class="h-8 px-2 border border-slate-700 rounded bg-slate-900 w-full"
+              />
             </label>
             <label class="space-y-1">
               <span class="text-slate-300">Height when idle (px)</span>
-              <input v-model.number="settingsDraft.quick_window_sizes.idle_height" type="number" min="300" class="h-8 px-2 border border-slate-700 rounded bg-slate-900 w-full" />
+              <input
+                v-model.number="settingsDraft.quick_window_sizes.idle_height"
+                type="number"
+                min="300"
+                class="h-8 px-2 border border-slate-700 rounded bg-slate-900 w-full"
+              />
             </label>
             <label class="space-y-1">
               <span class="text-slate-300">Height while searching (px)</span>
-              <input v-model.number="settingsDraft.quick_window_sizes.searching_height" type="number" min="300" class="h-8 px-2 border border-slate-700 rounded bg-slate-900 w-full" />
+              <input
+                v-model.number="settingsDraft.quick_window_sizes.searching_height"
+                type="number"
+                min="300"
+                class="h-8 px-2 border border-slate-700 rounded bg-slate-900 w-full"
+              />
             </label>
             <label class="space-y-1">
               <span class="text-slate-300">Height with no results (px)</span>
-              <input v-model.number="settingsDraft.quick_window_sizes.no_results_height" type="number" min="300" class="h-8 px-2 border border-slate-700 rounded bg-slate-900 w-full" />
+              <input
+                v-model.number="settingsDraft.quick_window_sizes.no_results_height"
+                type="number"
+                min="300"
+                class="h-8 px-2 border border-slate-700 rounded bg-slate-900 w-full"
+              />
             </label>
             <label class="space-y-1">
               <span class="text-slate-300">Height on error (px)</span>
-              <input v-model.number="settingsDraft.quick_window_sizes.error_height" type="number" min="300" class="h-8 px-2 border border-slate-700 rounded bg-slate-900 w-full" />
+              <input
+                v-model.number="settingsDraft.quick_window_sizes.error_height"
+                type="number"
+                min="300"
+                class="h-8 px-2 border border-slate-700 rounded bg-slate-900 w-full"
+              />
             </label>
             <label class="space-y-1">
               <span class="text-slate-300">Height with results (px)</span>
-              <input v-model.number="settingsDraft.quick_window_sizes.results_height" type="number" min="300" class="h-8 px-2 border border-slate-700 rounded bg-slate-900 w-full" />
+              <input
+                v-model.number="settingsDraft.quick_window_sizes.results_height"
+                type="number"
+                min="300"
+                class="h-8 px-2 border border-slate-700 rounded bg-slate-900 w-full"
+              />
             </label>
           </div>
         </div>
@@ -861,18 +1245,44 @@ watch(
                 v-model="settingsDraft.prefill_strategy"
                 class="h-8 px-2 pr-8 border border-slate-700 rounded bg-slate-900 text-slate-100 w-full appearance-none focus:outline-none focus:ring-2 focus:ring-cyan-500/40 focus:border-cyan-500"
               >
-                <option value="active_then_clipboard_then_history">Active folder &gt; clipboard &gt; history</option>
+                <option value="active_then_clipboard_then_history">
+                  Active folder &gt; clipboard &gt; history
+                </option>
                 <option value="clipboard_then_history">Clipboard &gt; history</option>
                 <option value="history_then_clipboard">History &gt; clipboard</option>
               </select>
-              <span class="pointer-events-none absolute right-2 top-1/2 -translate-y-1/2 text-slate-400 text-[10px]">▼</span>
+              <span
+                class="pointer-events-none absolute right-2 top-1/2 -translate-y-1/2 text-slate-400 text-[10px]"
+                >▼</span
+              >
             </div>
             <label class="space-y-1">
               <span class="text-slate-300">History limit</span>
-              <input v-model.number="settingsDraft.history.limit" type="number" min="1" class="h-8 px-2 border border-slate-700 rounded bg-slate-900 w-full" />
+              <input
+                v-model.number="settingsDraft.history.limit"
+                type="number"
+                min="1"
+                class="h-8 px-2 border border-slate-700 rounded bg-slate-900 w-full"
+              />
+            </label>
+            <label class="flex items-center gap-2 mt-5">
+              <input v-model="settingsDraft.behavior.search_as_you_type" type="checkbox" />
+              Search as you type
+            </label>
+            <label class="space-y-1">
+              <span class="text-slate-300">Debounce (ms)</span>
+              <input
+                v-model.number="settingsDraft.behavior.search_debounce_ms"
+                type="number"
+                min="200"
+                max="400"
+                class="h-8 px-2 border border-slate-700 rounded bg-slate-900 w-full"
+              />
             </label>
           </div>
-          <p class="text-[11px] text-slate-500">Prefill strategy controls how quick search chooses the initial path.</p>
+          <p class="text-[11px] text-slate-500">
+            Prefill strategy controls how quick search chooses the initial path.
+          </p>
         </div>
       </div>
 
@@ -887,35 +1297,85 @@ watch(
         </button>
       </div>
       <p v-if="settingsError" class="text-xs text-red-300">{{ settingsError }}</p>
-      <div v-if="settingsDraft" class="rounded border border-slate-700 bg-slate-800/60 p-3 space-y-2 md:col-span-2 text-xs">
+      <div
+        v-if="settingsDraft"
+        class="rounded border border-slate-700 bg-slate-800/60 p-3 space-y-2 md:col-span-2 text-xs"
+      >
         <p class="font-semibold text-cyan-300">Default include patterns</p>
         <div class="flex gap-2">
-          <input v-model="includePatternInput" class="flex-1 h-8 px-2 border border-slate-700 rounded bg-slate-900" placeholder="*.rs or src/**" @keyup.enter="addDefaultIncludePattern" />
-          <button type="button" class="h-8 px-3 rounded border border-slate-600 bg-slate-800 hover:bg-slate-700 text-slate-200" @click="addDefaultIncludePattern">Add</button>
+          <input
+            v-model="includePatternInput"
+            class="flex-1 h-8 px-2 border border-slate-700 rounded bg-slate-900"
+            placeholder="*.rs or src/**"
+            @keyup.enter="addDefaultIncludePattern"
+          />
+          <button
+            type="button"
+            class="h-8 px-3 rounded border border-slate-600 bg-slate-800 hover:bg-slate-700 text-slate-200"
+            @click="addDefaultIncludePattern"
+          >
+            Add
+          </button>
         </div>
         <div class="flex flex-wrap gap-1">
-          <span v-for="pattern in settingsDraft.search_defaults.file_types" :key="pattern" class="px-2 py-1 rounded border border-slate-600 bg-slate-900 text-slate-200">
+          <span
+            v-for="pattern in settingsDraft.search_defaults.file_types"
+            :key="pattern"
+            class="px-2 py-1 rounded border border-slate-600 bg-slate-900 text-slate-200"
+          >
             {{ pattern }}
-            <button type="button" class="ml-1 text-slate-400 hover:text-red-300" @click="removeDefaultIncludePattern(pattern)">×</button>
+            <button
+              type="button"
+              class="ml-1 text-slate-400 hover:text-red-300"
+              @click="removeDefaultIncludePattern(pattern)"
+            >
+              ×
+            </button>
           </span>
         </div>
       </div>
 
-      <div v-if="settingsDraft" class="rounded border border-slate-700 bg-slate-800/60 p-3 space-y-2 md:col-span-2 text-xs">
+      <div
+        v-if="settingsDraft"
+        class="rounded border border-slate-700 bg-slate-800/60 p-3 space-y-2 md:col-span-2 text-xs"
+      >
         <p class="font-semibold text-cyan-300">Default exclude patterns</p>
         <div class="flex gap-2">
-          <input v-model="excludePatternInput" class="flex-1 h-8 px-2 border border-slate-700 rounded bg-slate-900" placeholder="node_modules/** or *.log" @keyup.enter="addDefaultExcludePattern" />
-          <button type="button" class="h-8 px-3 rounded border border-slate-600 bg-slate-800 hover:bg-slate-700 text-slate-200" @click="addDefaultExcludePattern">Add</button>
+          <input
+            v-model="excludePatternInput"
+            class="flex-1 h-8 px-2 border border-slate-700 rounded bg-slate-900"
+            placeholder="node_modules/** or *.log"
+            @keyup.enter="addDefaultExcludePattern"
+          />
+          <button
+            type="button"
+            class="h-8 px-3 rounded border border-slate-600 bg-slate-800 hover:bg-slate-700 text-slate-200"
+            @click="addDefaultExcludePattern"
+          >
+            Add
+          </button>
         </div>
         <div class="flex flex-wrap gap-1">
-          <span v-for="pattern in settingsDraft.search_defaults.exclude_patterns" :key="pattern" class="px-2 py-1 rounded border border-slate-600 bg-slate-900 text-slate-200">
+          <span
+            v-for="pattern in settingsDraft.search_defaults.exclude_patterns"
+            :key="pattern"
+            class="px-2 py-1 rounded border border-slate-600 bg-slate-900 text-slate-200"
+          >
             {{ pattern }}
-            <button type="button" class="ml-1 text-slate-400 hover:text-red-300" @click="removeDefaultExcludePattern(pattern)">×</button>
+            <button
+              type="button"
+              class="ml-1 text-slate-400 hover:text-red-300"
+              @click="removeDefaultExcludePattern(pattern)"
+            >
+              ×
+            </button>
           </span>
         </div>
       </div>
 
-      <p class="text-[11px] text-slate-500">This window starts hidden and is available from tray.</p>
+      <p class="text-[11px] text-slate-500">
+        This window starts hidden and is available from tray.
+      </p>
     </div>
 
     <div v-else class="max-w-6xl mx-auto space-y-3">
@@ -956,7 +1416,15 @@ watch(
         :focus-pattern-signal="focusPatternSignal"
         :search-defaults="currentSettings().search_defaults"
         :history-limit="currentSettings().history.limit"
+        :search-profiles="currentSettings().search_profiles"
+        :active-profile-id="activeProfileId"
+        :saved-searches="currentSettings().saved_searches"
         @search="handleSearch"
+        @params-change="scheduleIncrementalSearch"
+        @apply-profile="applySearchProfile"
+        @save-preset="saveCurrentPreset"
+        @apply-preset="applySavedPreset"
+        @delete-preset="deleteSavedPreset"
         @cancel="handleCancel"
       />
 
@@ -964,7 +1432,11 @@ watch(
         <div class="flex">
           <div class="shrink-0">
             <svg class="h-5 w-5 text-red-300" viewBox="0 0 20 20" fill="currentColor">
-              <path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM8.707 7.293a1 1 0 00-1.414 1.414L8.586 10l-1.293 1.293a1 1 0 101.414 1.414L10 11.414l1.293 1.293a1 1 0 001.414-1.414L11.414 10l1.293-1.293a1 1 0 00-1.414-1.414L10 8.586 8.707 7.293z" clip-rule="evenodd" />
+              <path
+                fill-rule="evenodd"
+                d="M10 18a8 8 0 100-16 8 8 0 000 16zM8.707 7.293a1 1 0 00-1.414 1.414L8.586 10l-1.293 1.293a1 1 0 101.414 1.414L10 11.414l1.293 1.293a1 1 0 001.414-1.414L11.414 10l1.293-1.293a1 1 0 00-1.414-1.414L10 8.586 8.707 7.293z"
+                clip-rule="evenodd"
+              />
             </svg>
           </div>
           <div class="ml-3">

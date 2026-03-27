@@ -7,7 +7,8 @@ const isDark = ref(false);
 onMounted(() => {
   // Check system preference and localStorage on mount
   const savedTheme = localStorage.getItem('theme');
-  isDark.value = savedTheme === 'dark' ||
+  isDark.value =
+    savedTheme === 'dark' ||
     (!savedTheme && window.matchMedia('(prefers-color-scheme: dark)').matches);
   updateTheme();
 });
@@ -22,9 +23,5 @@ watch(isDark, updateTheme);
 </script>
 
 <template>
-  <BaseSwitch
-    :model-value="isDark"
-    label="Dark mode"
-    @update:model-value="isDark = $event"
-  />
+  <BaseSwitch :model-value="isDark" label="Dark mode" @update:model-value="isDark = $event" />
 </template>

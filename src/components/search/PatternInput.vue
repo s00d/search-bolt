@@ -7,13 +7,14 @@ const props = defineProps<{
   modelValue: string;
   patternHistory: string[];
   focusSignal?: number;
+  historyLimit?: number;
 }>();
 
 const emit = defineEmits<{
   'update:modelValue': [value: string];
   'save-history': [];
   'clear-history': [];
-  'search': [];
+  search: [];
 }>();
 
 const showPatternHistory = ref(false);
@@ -47,6 +48,7 @@ watch(
   <div class="relative flex-1">
     <input
       ref="inputRef"
+      data-field-id="pattern-input"
       :value="modelValue"
       type="text"
       placeholder="Search pattern..."
@@ -67,6 +69,7 @@ watch(
     <HistoryDropdown
       :show="showPatternHistory"
       :items="patternHistory"
+      :limit="historyLimit ?? 20"
       title="Recent Patterns"
       @select="handleHistorySelect"
       @clear="$emit('clear-history')"

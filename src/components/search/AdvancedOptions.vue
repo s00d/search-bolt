@@ -21,6 +21,11 @@ const props = defineProps<{
   pageSize: number;
   maxResults: number;
   timeoutSeconds: number;
+  profileId?: string;
+  profiles?: Array<{
+    id: string;
+    name: string;
+  }>;
 }>();
 
 const emit = defineEmits<{
@@ -39,6 +44,7 @@ const emit = defineEmits<{
   'update:pageSize': [value: number];
   'update:maxResults': [value: number];
   'update:timeoutSeconds': [value: number];
+  'apply-profile': [profileId: string];
 }>();
 
 const fileTypeInput = ref('');
@@ -52,7 +58,10 @@ function addFileType() {
 }
 
 function removeFileType(type: string) {
-  emit('update:fileTypes', props.fileTypes.filter(t => t !== type));
+  emit(
+    'update:fileTypes',
+    props.fileTypes.filter((t) => t !== type)
+  );
 }
 
 function addExcludePattern() {
@@ -63,12 +72,17 @@ function addExcludePattern() {
 }
 
 function removeExcludePattern(pattern: string) {
-  emit('update:excludePatterns', props.excludePatterns.filter(p => p !== pattern));
+  emit(
+    'update:excludePatterns',
+    props.excludePatterns.filter((p) => p !== pattern)
+  );
 }
 </script>
 
 <template>
-  <BaseDisclosure button-class="h-8 px-2 rounded-md border border-slate-700 bg-slate-900 text-slate-300 hover:bg-slate-800 text-xs">
+  <BaseDisclosure
+    button-class="h-8 px-2 rounded-md border border-slate-700 bg-slate-900 text-slate-300 hover:bg-slate-800 text-xs"
+  >
     <template #button>
       <span class="flex items-center gap-1">
         <AdjustmentsHorizontalIcon class="w-4 h-4" />
@@ -78,6 +92,21 @@ function removeExcludePattern(pattern: string) {
 
     <div class="space-y-3 p-3 rounded-md border border-slate-700 bg-slate-900/80 text-sm">
       <div class="flex flex-wrap gap-4">
+        <div class="flex items-center gap-2">
+          <span class="text-slate-300 whitespace-nowrap text-xs">Global profile:</span>
+          <div class="relative">
+            <select
+              :value="profileId"
+              class="h-8 px-2 pr-8 text-xs border border-slate-700 bg-slate-800 text-slate-100 rounded appearance-none focus:outline-none focus:ring-2 focus:ring-cyan-500/50 focus:border-cyan-500"
+              @change="$emit('apply-profile', ($event.target as HTMLSelectElement).value)"
+            >
+              <option v-for="profile in profiles ?? []" :key="profile.id" :value="profile.id">
+                {{ profile.name }}
+              </option>
+            </select>
+            <span class="pointer-events-none absolute right-2 top-1/2 -translate-y-1/2 text-slate-400 text-[10px]">▼</span>
+          </div>
+        </div>
         <BaseSwitch
           :model-value="caseSensitive"
           @update:model-value="$emit('update:caseSensitive', $event)"
@@ -115,7 +144,14 @@ function removeExcludePattern(pattern: string) {
             type="number"
             min="1"
             class="w-20 h-8 px-2 text-xs border border-slate-700 bg-slate-800 text-slate-100 rounded focus:outline-none focus:ring-2 focus:ring-cyan-500/50 focus:border-cyan-500"
-            @input="$emit('update:maxDepth', ($event.target as HTMLInputElement).value ? Number(($event.target as HTMLInputElement).value) : undefined)"
+            @input="
+              $emit(
+                'update:maxDepth',
+                ($event.target as HTMLInputElement).value
+                  ? Number(($event.target as HTMLInputElement).value)
+                  : undefined
+              )
+            "
           />
         </div>
 
@@ -126,7 +162,9 @@ function removeExcludePattern(pattern: string) {
             type="number"
             min="1"
             class="w-20 h-8 px-2 text-xs border border-slate-700 bg-slate-800 text-slate-100 rounded focus:outline-none focus:ring-2 focus:ring-cyan-500/50 focus:border-cyan-500"
-            @input="$emit('update:maxResults', Number(($event.target as HTMLInputElement).value) || 100)"
+            @input="
+              $emit('update:maxResults', Number(($event.target as HTMLInputElement).value) || 100)
+            "
           />
         </div>
 
@@ -137,7 +175,9 @@ function removeExcludePattern(pattern: string) {
             type="number"
             min="1"
             class="w-20 h-8 px-2 text-xs border border-slate-700 bg-slate-800 text-slate-100 rounded focus:outline-none focus:ring-2 focus:ring-cyan-500/50 focus:border-cyan-500"
-            @input="$emit('update:pageSize', Number(($event.target as HTMLInputElement).value) || 50)"
+            @input="
+              $emit('update:pageSize', Number(($event.target as HTMLInputElement).value) || 50)
+            "
           />
         </div>
 
@@ -148,7 +188,12 @@ function removeExcludePattern(pattern: string) {
             type="number"
             min="1"
             class="w-20 h-8 px-2 text-xs border border-slate-700 bg-slate-800 text-slate-100 rounded focus:outline-none focus:ring-2 focus:ring-cyan-500/50 focus:border-cyan-500"
-            @input="$emit('update:timeoutSeconds', Number(($event.target as HTMLInputElement).value) || 60)"
+            @input="
+              $emit(
+                'update:timeoutSeconds',
+                Number(($event.target as HTMLInputElement).value) || 60
+              )
+            "
           />
         </div>
       </div>
@@ -161,7 +206,9 @@ function removeExcludePattern(pattern: string) {
             type="number"
             min="0"
             class="w-20 h-8 px-2 text-xs border border-slate-700 bg-slate-800 text-slate-100 rounded focus:outline-none focus:ring-2 focus:ring-cyan-500/50 focus:border-cyan-500"
-            @input="$emit('update:beforeContext', Number(($event.target as HTMLInputElement).value) || 0)"
+            @input="
+              $emit('update:beforeContext', Number(($event.target as HTMLInputElement).value) || 0)
+            "
           />
         </div>
         <div class="flex items-center gap-2">
@@ -171,30 +218,48 @@ function removeExcludePattern(pattern: string) {
             type="number"
             min="0"
             class="w-20 h-8 px-2 text-xs border border-slate-700 bg-slate-800 text-slate-100 rounded focus:outline-none focus:ring-2 focus:ring-cyan-500/50 focus:border-cyan-500"
-            @input="$emit('update:afterContext', Number(($event.target as HTMLInputElement).value) || 0)"
+            @input="
+              $emit('update:afterContext', Number(($event.target as HTMLInputElement).value) || 0)
+            "
           />
         </div>
         <div class="flex items-center gap-2">
           <span class="text-slate-300 whitespace-nowrap text-xs">Engine:</span>
-          <select
-            :value="engine"
-            class="h-8 px-2 text-xs border border-slate-700 bg-slate-800 text-slate-100 rounded focus:outline-none focus:ring-2 focus:ring-cyan-500/50 focus:border-cyan-500"
-            @change="$emit('update:engine', ($event.target as HTMLSelectElement).value as 'rust_regex' | 'pcre2')"
-          >
-            <option value="rust_regex">Rust regex</option>
-            <option value="pcre2">PCRE2</option>
-          </select>
+          <div class="relative">
+            <select
+              :value="engine"
+              class="h-8 px-2 pr-8 text-xs border border-slate-700 bg-slate-800 text-slate-100 rounded appearance-none focus:outline-none focus:ring-2 focus:ring-cyan-500/50 focus:border-cyan-500"
+              @change="
+                $emit(
+                  'update:engine',
+                  ($event.target as HTMLSelectElement).value as 'rust_regex' | 'pcre2'
+                )
+              "
+            >
+              <option value="rust_regex">Rust regex</option>
+              <option value="pcre2">PCRE2</option>
+            </select>
+            <span class="pointer-events-none absolute right-2 top-1/2 -translate-y-1/2 text-slate-400 text-[10px]">▼</span>
+          </div>
         </div>
         <div class="flex items-center gap-2">
           <span class="text-slate-300 whitespace-nowrap text-xs">Binary:</span>
-          <select
-            :value="binaryPolicy"
-            class="h-8 px-2 text-xs border border-slate-700 bg-slate-800 text-slate-100 rounded focus:outline-none focus:ring-2 focus:ring-cyan-500/50 focus:border-cyan-500"
-            @change="$emit('update:binaryPolicy', ($event.target as HTMLSelectElement).value as 'skip' | 'lossy')"
-          >
-            <option value="lossy">Lossy</option>
-            <option value="skip">Skip</option>
-          </select>
+          <div class="relative">
+            <select
+              :value="binaryPolicy"
+              class="h-8 px-2 pr-8 text-xs border border-slate-700 bg-slate-800 text-slate-100 rounded appearance-none focus:outline-none focus:ring-2 focus:ring-cyan-500/50 focus:border-cyan-500"
+              @change="
+                $emit(
+                  'update:binaryPolicy',
+                  ($event.target as HTMLSelectElement).value as 'skip' | 'lossy'
+                )
+              "
+            >
+              <option value="lossy">Lossy</option>
+              <option value="skip">Skip</option>
+            </select>
+            <span class="pointer-events-none absolute right-2 top-1/2 -translate-y-1/2 text-slate-400 text-[10px]">▼</span>
+          </div>
         </div>
       </div>
 
@@ -221,10 +286,7 @@ function removeExcludePattern(pattern: string) {
             class="px-1.5 py-0.5 bg-slate-800 border border-slate-700 text-slate-200 rounded flex items-center gap-1 text-xs"
           >
             {{ type }}
-            <button
-              @click="removeFileType(type)"
-              class="text-slate-400 hover:text-red-300"
-            >
+            <button @click="removeFileType(type)" class="text-slate-400 hover:text-red-300">
               ×
             </button>
           </span>

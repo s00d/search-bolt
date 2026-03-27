@@ -18,6 +18,7 @@ The app is designed around a quick-search popup: press a global shortcut anywher
 - **Tray-oriented behavior**: app can run in the tray while search opens on demand.
 - **Native ripgrep pipeline**: backend uses ripgrep ecosystem crates directly from Rust.
 - **Chunked search sessions**: results are streamed in pages (`search_start` / `search_next` / `search_cancel`) for responsive UI.
+- **Incremental search**: optional debounced `search-as-you-type` with automatic session cancellation.
 - **Editor integration**: open matches in configured editors at line/column.
 - **Persistent settings**: all settings are stored in a local key-value store.
 
@@ -43,6 +44,8 @@ The app is designed around a quick-search popup: press a global shortcut anywher
 - Engine selection (`rust_regex`, optional `pcre2` build)
 - Match highlighting for global pattern and local filter
 - Search statistics (elapsed time, scanned/skipped files, page counters)
+- Saved search presets (path + pattern + advanced options)
+- Global search profiles (`Code`, `Frontend`, `Rust`, `Everything`)
 
 ## Editor Support
 
@@ -77,6 +80,29 @@ pnpm install
 pnpm tauri dev
 ```
 
+## Code Quality
+
+Frontend and JS/TS config files are checked with Oxc tools:
+
+- `oxlint` for linting
+- `oxfmt` for formatting
+
+Run locally:
+
+```bash
+pnpm lint
+pnpm format
+pnpm format:check
+pnpm check
+```
+
+Scope:
+
+- `src/**/*.{js,ts,tsx,vue}`
+- Root JS/TS config files: `*.{js,mjs,cjs,ts}`
+
+Rust quality checks remain separate (`cargo fmt`, `cargo clippy`).
+
 ## Production Build
 
 ```bash
@@ -98,6 +124,11 @@ The repository includes a GitHub Actions release workflow that builds:
 - Global hotkey, autostart, search defaults, editor settings, and behavior options are managed in-app and persisted.
 - Logging is provided through `tauri-plugin-log` for both Rust and frontend diagnostics.
 - On macOS, active path detection uses app-aware strategies and Finder fallback.
+- Result rendering is grouped by file, with inline actions:
+  - Copy path
+  - Copy path:line
+  - Reveal in Finder/Explorer
+  - Open terminal in result directory
 
 ### mac OS Sign
 

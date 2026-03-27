@@ -10,6 +10,7 @@ const props = defineProps<{
   modelValue: string;
   pathHistory: string[];
   focusSignal?: number;
+  historyLimit?: number;
 }>();
 
 const emit = defineEmits<{
@@ -92,6 +93,7 @@ function toggleHistory() {
       <div class="relative flex-1">
         <input
           ref="inputRef"
+          data-field-id="path-input"
           :value="modelValue"
           type="text"
           placeholder="Path to file or directory..."
@@ -111,6 +113,7 @@ function toggleHistory() {
         <HistoryDropdown
           :show="showPathHistory"
           :items="pathHistory"
+          :limit="historyLimit ?? 20"
           title="Recent Paths"
           :truncate="true"
           @select="handleHistorySelect"

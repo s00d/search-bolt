@@ -1,11 +1,11 @@
 <script setup lang="ts">
-import {ref, onMounted, onUnmounted, watch} from 'vue';
+import { ref, onMounted, onUnmounted, watch } from 'vue';
 import { MagnifyingGlassIcon } from '@heroicons/vue/24/outline';
 import PathSelector from './search/PathSelector.vue';
 import PatternInput from './search/PatternInput.vue';
 import AdvancedOptions from './search/AdvancedOptions.vue';
-import {getCurrentWebview} from "@tauri-apps/api/webview";
-import type {UnlistenFn} from "@tauri-apps/api/event";
+import { getCurrentWebview } from '@tauri-apps/api/webview';
+import type { UnlistenFn } from '@tauri-apps/api/event';
 import {
   clearPathHistoryInStore,
   clearPatternHistoryInStore,
@@ -23,6 +23,34 @@ const props = defineProps<{
   prefillPath?: string;
   focusPatternSignal?: number;
   historyLimit?: number;
+  activeProfileId?: string;
+  searchProfiles?: Array<{
+    id: string;
+    name: string;
+    file_types: string[];
+    exclude_patterns: string[];
+  }>;
+  savedSearches?: Array<{
+    id: string;
+    name: string;
+    path: string;
+    pattern: string;
+    case_sensitive: boolean;
+    whole_word: boolean;
+    use_regex: boolean;
+    literal: boolean;
+    multiline: boolean;
+    before_context: number;
+    after_context: number;
+    engine: 'rust_regex' | 'pcre2';
+    binary_policy: 'skip' | 'lossy';
+    max_depth?: number;
+    file_types: string[];
+    exclude_patterns: string[];
+    page_size: number;
+    max_results: number;
+    timeout_seconds: number;
+  }>;
   searchDefaults?: {
     case_sensitive: boolean;
     whole_word: boolean;
@@ -43,26 +71,74 @@ const props = defineProps<{
 }>();
 
 const emit = defineEmits<{
-  search: [params: {
-    path: string;
-    pattern: string;
-    case_sensitive: boolean;
-    whole_word: boolean;
-    use_regex: boolean;
-    literal: boolean;
-    multiline: boolean;
-    before_context: number;
-    after_context: number;
-    engine: 'rust_regex' | 'pcre2';
-    binary_policy: 'skip' | 'lossy';
-    max_depth?: number;
-    file_types: string[];
-    exclude_patterns: string[];
-    page_size: number;
-    max_results: number;
-    timeout_seconds: number;
-  }];
+  search: [
+    params: {
+      path: string;
+      pattern: string;
+      case_sensitive: boolean;
+      whole_word: boolean;
+      use_regex: boolean;
+      literal: boolean;
+      multiline: boolean;
+      before_context: number;
+      after_context: number;
+      engine: 'rust_regex' | 'pcre2';
+      binary_policy: 'skip' | 'lossy';
+      max_depth?: number;
+      file_types: string[];
+      exclude_patterns: string[];
+      page_size: number;
+      max_results: number;
+      timeout_seconds: number;
+    },
+  ];
   cancel: [];
+  'params-change': [
+    params: {
+      path: string;
+      pattern: string;
+      case_sensitive: boolean;
+      whole_word: boolean;
+      use_regex: boolean;
+      literal: boolean;
+      multiline: boolean;
+      before_context: number;
+      after_context: number;
+      engine: 'rust_regex' | 'pcre2';
+      binary_policy: 'skip' | 'lossy';
+      max_depth?: number;
+      file_types: string[];
+      exclude_patterns: string[];
+      page_size: number;
+      max_results: number;
+      timeout_seconds: number;
+    },
+  ];
+  'apply-profile': [profileId: string];
+  'save-preset': [
+    name: string,
+    params: {
+      path: string;
+      pattern: string;
+      case_sensitive: boolean;
+      whole_word: boolean;
+      use_regex: boolean;
+      literal: boolean;
+      multiline: boolean;
+      before_context: number;
+      after_context: number;
+      engine: 'rust_regex' | 'pcre2';
+      binary_policy: 'skip' | 'lossy';
+      max_depth?: number;
+      file_types: string[];
+      exclude_patterns: string[];
+      page_size: number;
+      max_results: number;
+      timeout_seconds: number;
+    },
+  ];
+  'apply-preset': [presetId: string];
+  'delete-preset': [presetId: string];
 }>();
 
 const searchPath = ref('');
@@ -85,6 +161,9 @@ const isDragging = ref(false);
 const maxResults = ref(100);
 const timeoutSeconds = ref(60);
 const pageSize = ref(50);
+const selectedProfileId = ref('everything');
+const selectedPresetId = ref('');
+const newPresetName = ref('');
 
 let dragDropUnlisten: UnlistenFn | null = null;
 
@@ -153,7 +232,7 @@ function loadHistory() {
 function savePathHistory() {
   if (!searchPath.value) return;
 
-  const newHistory = [searchPath.value, ...pathHistory.value.filter(p => p !== searchPath.value)];
+  const newHistory = [searchPath.value, ...pathHistory.value.filter((p) => p !== searchPath.value)];
   pathHistory.value = newHistory.slice(0, props.historyLimit ?? MAX_HISTORY);
   setPathHistoryToStore(pathHistory.value).catch(() => {
     // Ignore persistence error, keep in-memory history.
@@ -163,7 +242,10 @@ function savePathHistory() {
 function savePatternHistory() {
   if (!searchPattern.value) return;
 
-  const newHistory = [searchPattern.value, ...patternHistory.value.filter(p => p !== searchPattern.value)];
+  const newHistory = [
+    searchPattern.value,
+    ...patternHistory.value.filter((p) => p !== searchPattern.value),
+  ];
   patternHistory.value = newHistory.slice(0, props.historyLimit ?? MAX_HISTORY);
   setPatternHistoryToStore(patternHistory.value).catch(() => {
     // Ignore persistence error, keep in-memory history.
@@ -191,6 +273,16 @@ function handleSearch() {
   savePatternHistory();
 
   emit('search', {
+    ...buildParams(),
+  });
+}
+
+function handleCancel() {
+  emit('cancel');
+}
+
+function buildParams() {
+  return {
     path: searchPath.value,
     pattern: searchPattern.value,
     case_sensitive: caseSensitive.value,
@@ -208,12 +300,73 @@ function handleSearch() {
     page_size: pageSize.value,
     max_results: maxResults.value,
     timeout_seconds: timeoutSeconds.value,
-  });
+  };
 }
 
-function handleCancel() {
-  emit('cancel');
+function emitParamsChange() {
+  emit('params-change', buildParams());
 }
+
+function applySelectedProfile() {
+  if (!selectedProfileId.value) return;
+  emit('apply-profile', selectedProfileId.value);
+}
+
+function handleProfileSelection(profileId: string) {
+  selectedProfileId.value = profileId;
+  applySelectedProfile();
+}
+
+function saveCurrentAsPreset() {
+  const name = newPresetName.value.trim();
+  if (!name) return;
+  emit('save-preset', name, buildParams());
+  newPresetName.value = '';
+}
+
+function applySelectedPreset() {
+  if (!selectedPresetId.value) return;
+  emit('apply-preset', selectedPresetId.value);
+}
+
+function deleteSelectedPreset() {
+  if (!selectedPresetId.value) return;
+  emit('delete-preset', selectedPresetId.value);
+  selectedPresetId.value = '';
+}
+
+watch(
+  () => props.activeProfileId,
+  (next) => {
+    if (next) selectedProfileId.value = next;
+  },
+  { immediate: true }
+);
+
+watch(
+  () => [
+    searchPath.value,
+    searchPattern.value,
+    caseSensitive.value,
+    wholeWord.value,
+    useRegex.value,
+    literal.value,
+    multiline.value,
+    beforeContext.value,
+    afterContext.value,
+    engine.value,
+    binaryPolicy.value,
+    maxDepth.value,
+    fileTypes.value.join('\n'),
+    excludePatterns.value.join('\n'),
+    pageSize.value,
+    maxResults.value,
+    timeoutSeconds.value,
+  ],
+  () => {
+    emitParamsChange();
+  }
+);
 </script>
 
 <template>
@@ -228,11 +381,72 @@ function handleCancel() {
       <p class="text-cyan-300 text-sm">Drop file or folder here</p>
     </div>
     <div class="space-y-2">
+      <div class="flex flex-wrap gap-2 items-center">
+        <div class="flex items-center gap-1">
+          <span class="text-[11px] uppercase tracking-wide text-slate-400">Profile</span>
+          <div class="relative">
+            <select
+              v-model="selectedProfileId"
+              class="h-8 px-2 pr-8 text-xs border border-slate-700 bg-slate-900 text-slate-100 rounded appearance-none focus:outline-none focus:ring-2 focus:ring-cyan-500/40 focus:border-cyan-500"
+              @change="applySelectedProfile"
+            >
+              <option v-for="profile in searchProfiles ?? []" :key="profile.id" :value="profile.id">
+                {{ profile.name }}
+              </option>
+            </select>
+            <span class="pointer-events-none absolute right-2 top-1/2 -translate-y-1/2 text-slate-400 text-[10px]">▼</span>
+          </div>
+        </div>
+        <div class="flex items-center gap-1">
+          <span class="text-[11px] uppercase tracking-wide text-slate-400">Presets</span>
+          <div class="relative">
+            <select
+              v-model="selectedPresetId"
+              class="h-8 min-w-[160px] px-2 pr-8 text-xs border border-slate-700 bg-slate-900 text-slate-100 rounded appearance-none focus:outline-none focus:ring-2 focus:ring-cyan-500/40 focus:border-cyan-500"
+            >
+              <option value="">Select preset...</option>
+              <option v-for="preset in savedSearches ?? []" :key="preset.id" :value="preset.id">
+                {{ preset.name }}
+              </option>
+            </select>
+            <span class="pointer-events-none absolute right-2 top-1/2 -translate-y-1/2 text-slate-400 text-[10px]">▼</span>
+          </div>
+          <button
+            type="button"
+            class="h-8 px-2 rounded border border-slate-700 bg-slate-800 text-slate-200 hover:bg-cyan-500/20 hover:border-cyan-400 text-xs"
+            @click="applySelectedPreset"
+          >
+            Apply
+          </button>
+          <button
+            type="button"
+            class="h-8 px-2 rounded border border-slate-700 bg-slate-800 text-slate-200 hover:bg-red-500/20 hover:border-red-400 text-xs"
+            @click="deleteSelectedPreset"
+          >
+            Delete
+          </button>
+        </div>
+        <div class="flex items-center gap-1">
+          <input
+            v-model="newPresetName"
+            class="h-8 px-2 text-xs border border-slate-700 bg-slate-900 text-slate-100 rounded min-w-[140px]"
+            placeholder="New preset name"
+          />
+          <button
+            type="button"
+            class="h-8 px-2 rounded border border-slate-700 bg-slate-800 text-slate-200 hover:bg-cyan-500/20 hover:border-cyan-400 text-xs"
+            @click="saveCurrentAsPreset"
+          >
+            Save preset
+          </button>
+        </div>
+      </div>
       <div class="text-xs uppercase tracking-wide text-slate-400">Search Workspace</div>
       <div class="flex gap-2 items-start">
         <PathSelector
           v-model="searchPath"
           :path-history="pathHistory"
+          :history-limit="historyLimit ?? MAX_HISTORY"
           @save-history="savePathHistory"
           @clear-history="clearPathHistory"
         />
@@ -243,6 +457,7 @@ function handleCancel() {
           v-model="searchPattern"
           :pattern-history="patternHistory"
           :focus-signal="focusPatternSignal"
+          :history-limit="historyLimit ?? MAX_HISTORY"
           @save-history="savePatternHistory"
           @clear-history="clearPatternHistory"
           @search="handleSearch"
@@ -251,13 +466,17 @@ function handleCancel() {
         <button
           @click="isSearching ? handleCancel() : handleSearch()"
           class="px-3 h-9 rounded-md border text-sm min-w-[132px] justify-center transition-colors flex items-center gap-1.5 disabled:opacity-50"
-          :class="isSearching
-            ? 'bg-red-500/20 border-red-400/50 text-red-200 hover:bg-red-500/30'
-            : 'bg-cyan-500/20 border-cyan-400/50 text-cyan-200 hover:bg-cyan-500/30'"
-          :disabled="(!isSearching && (!searchPath || !searchPattern))"
+          :class="
+            isSearching
+              ? 'bg-red-500/20 border-red-400/50 text-red-200 hover:bg-red-500/30'
+              : 'bg-cyan-500/20 border-cyan-400/50 text-cyan-200 hover:bg-cyan-500/30'
+          "
+          :disabled="!isSearching && (!searchPath || !searchPattern)"
         >
           <template v-if="isSearching">
-            <div class="animate-spin w-4 h-4 border-2 border-white border-t-transparent rounded-full"></div>
+            <div
+              class="animate-spin w-4 h-4 border-2 border-white border-t-transparent rounded-full"
+            ></div>
             Cancel
           </template>
           <template v-else>
@@ -283,6 +502,9 @@ function handleCancel() {
         v-model:page-size="pageSize"
         v-model:max-results="maxResults"
         v-model:timeout-seconds="timeoutSeconds"
+        :profile-id="selectedProfileId"
+        :profiles="(searchProfiles ?? []).map((p) => ({ id: p.id, name: p.name }))"
+        @apply-profile="handleProfileSelection"
       />
     </div>
   </div>

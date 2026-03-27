@@ -15,11 +15,7 @@ function toggle() {
 
 <template>
   <div>
-    <button
-      @click="toggle"
-      :class="buttonClass"
-      class="w-full"
-    >
+    <button @click="toggle" :class="buttonClass" class="w-full">
       <div class="flex items-center justify-between w-full">
         <slot name="button" />
         <ChevronDownIcon class="w-4 h-4 transition-transform" :class="{ 'rotate-180': isOpen }" />

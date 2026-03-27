@@ -38,11 +38,11 @@ impl Default for QuickWindowSizes {
     fn default() -> Self {
         Self {
             width: 980,
-            idle_height: 520,
-            searching_height: 560,
-            no_results_height: 620,
-            error_height: 680,
-            results_height: 780,
+            idle_height: 760,
+            searching_height: 820,
+            no_results_height: 905,
+            error_height: 995,
+            results_height: 1145,
         }
     }
 }
@@ -115,6 +115,93 @@ impl Default for TraySettings {
     }
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(default)]
+pub struct BehaviorSettings {
+    pub search_as_you_type: bool,
+    pub search_debounce_ms: u64,
+}
+
+impl Default for BehaviorSettings {
+    fn default() -> Self {
+        Self {
+            search_as_you_type: true,
+            search_debounce_ms: 300,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(default)]
+pub struct SearchProfile {
+    pub id: String,
+    pub name: String,
+    pub file_types: Vec<String>,
+    pub exclude_patterns: Vec<String>,
+}
+
+impl Default for SearchProfile {
+    fn default() -> Self {
+        Self {
+            id: "everything".to_string(),
+            name: "Everything".to_string(),
+            file_types: Vec::new(),
+            exclude_patterns: Vec::new(),
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(default)]
+pub struct SavedSearchPreset {
+    pub id: String,
+    pub name: String,
+    pub path: String,
+    pub pattern: String,
+    pub case_sensitive: bool,
+    pub whole_word: bool,
+    pub use_regex: bool,
+    pub literal: bool,
+    pub multiline: bool,
+    pub before_context: usize,
+    pub after_context: usize,
+    pub engine: SearchEngine,
+    pub binary_policy: BinaryPolicy,
+    pub max_depth: Option<u32>,
+    pub file_types: Vec<String>,
+    pub exclude_patterns: Vec<String>,
+    pub page_size: usize,
+    pub max_results: usize,
+    pub timeout_seconds: u64,
+}
+
+impl Default for SavedSearchPreset {
+    fn default() -> Self {
+        let defaults = SearchDefaults::default();
+        Self {
+            id: "default".to_string(),
+            name: "Default".to_string(),
+            path: String::new(),
+            pattern: String::new(),
+            case_sensitive: defaults.case_sensitive,
+            whole_word: defaults.whole_word,
+            use_regex: defaults.use_regex,
+            literal: defaults.literal,
+            multiline: defaults.multiline,
+            before_context: defaults.before_context,
+            after_context: defaults.after_context,
+            engine: defaults.engine,
+            binary_policy: defaults.binary_policy,
+            max_depth: defaults.max_depth,
+            file_types: defaults.file_types,
+            exclude_patterns: defaults.exclude_patterns,
+            page_size: defaults.page_size,
+            max_results: defaults.max_results,
+            timeout_seconds: defaults.timeout_seconds,
+        }
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
 pub enum EditorMode {
@@ -182,6 +269,9 @@ pub struct AppSettings {
     pub quick_window_sizes: QuickWindowSizes,
     pub history: HistorySettings,
     pub tray: TraySettings,
+    pub behavior: BehaviorSettings,
+    pub search_profiles: Vec<SearchProfile>,
+    pub saved_searches: Vec<SavedSearchPreset>,
     pub editor: EditorSettings,
 }
 
@@ -195,9 +285,57 @@ impl Default for AppSettings {
             quick_window_sizes: QuickWindowSizes::default(),
             history: HistorySettings::default(),
             tray: TraySettings::default(),
+            behavior: BehaviorSettings::default(),
+            search_profiles: default_search_profiles(),
+            saved_searches: Vec::new(),
             editor: EditorSettings::default(),
         }
     }
+}
+
+fn default_search_profiles() -> Vec<SearchProfile> {
+    vec![
+        SearchProfile {
+            id: "code".to_string(),
+            name: "Code".to_string(),
+            file_types: Vec::new(),
+            exclude_patterns: vec![
+                "node_modules/**".to_string(),
+                ".git/**".to_string(),
+                "dist/**".to_string(),
+                "build/**".to_string(),
+                "target/**".to_string(),
+                "vendor/**".to_string(),
+            ],
+        },
+        SearchProfile {
+            id: "frontend".to_string(),
+            name: "Frontend".to_string(),
+            file_types: vec![
+                "*.ts".to_string(),
+                "*.tsx".to_string(),
+                "*.js".to_string(),
+                "*.jsx".to_string(),
+                "*.vue".to_string(),
+                "*.css".to_string(),
+                "*.scss".to_string(),
+                "*.html".to_string(),
+            ],
+            exclude_patterns: vec![
+                "node_modules/**".to_string(),
+                "dist/**".to_string(),
+                "coverage/**".to_string(),
+                ".git/**".to_string(),
+            ],
+        },
+        SearchProfile {
+            id: "rust".to_string(),
+            name: "Rust".to_string(),
+            file_types: vec!["*.rs".to_string(), "*.toml".to_string()],
+            exclude_patterns: vec!["target/**".to_string(), ".git/**".to_string()],
+        },
+        SearchProfile::default(),
+    ]
 }
 
 struct RuntimeState {
@@ -1243,6 +1381,61 @@ async fn open_result_in_editor(
 }
 
 #[tauri::command]
+async fn reveal_in_file_manager(path: String) -> Result<(), String> {
+    let candidate = Path::new(&path);
+    let reveal_path = if candidate.is_file() {
+        candidate.parent().unwrap_or(candidate)
+    } else {
+        candidate
+    };
+    let reveal = reveal_path.to_string_lossy().to_string();
+    if reveal.trim().is_empty() {
+        return Err("Path is empty".to_string());
+    }
+    open_with_system_default(&reveal)
+}
+
+#[tauri::command]
+async fn open_terminal_at_path(path: String) -> Result<(), String> {
+    let candidate = Path::new(&path);
+    let target = if candidate.is_file() {
+        candidate.parent().unwrap_or(candidate)
+    } else {
+        candidate
+    };
+    let dir = target.to_string_lossy().to_string();
+    if dir.trim().is_empty() {
+        return Err("Path is empty".to_string());
+    }
+    #[cfg(target_os = "macos")]
+    {
+        Command::new("open")
+            .args(["-a", "Terminal", &dir])
+            .spawn()
+            .map_err(|e| format!("Failed to open Terminal: {e}"))?;
+        return Ok(());
+    }
+    #[cfg(target_os = "linux")]
+    {
+        Command::new("xdg-open")
+            .arg(&dir)
+            .spawn()
+            .map_err(|e| format!("Failed to open terminal directory: {e}"))?;
+        return Ok(());
+    }
+    #[cfg(target_os = "windows")]
+    {
+        Command::new("cmd")
+            .args(["/C", "start", "wt.exe", "-d", &dir])
+            .spawn()
+            .map_err(|e| format!("Failed to open Windows Terminal: {e}"))?;
+        return Ok(());
+    }
+    #[allow(unreachable_code)]
+    Err("Open terminal is not supported on this platform".to_string())
+}
+
+#[tauri::command]
 async fn test_open_in_editor(app: AppHandle) -> Result<String, String> {
     let state = app.state::<RuntimeState>();
     let settings = state
@@ -1507,6 +1700,8 @@ pub fn run() {
             search_next,
             search_cancel,
             open_result_in_editor,
+            reveal_in_file_manager,
+            open_terminal_at_path,
             test_open_in_editor,
             hide_quick_search_window,
             show_quick_search_window,

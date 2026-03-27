@@ -26,5 +26,5 @@ export const clickOutside = {
     if (el._clickOutside) {
       document.removeEventListener('mousedown', el._clickOutside);
     }
-  }
-}
+  },
+};
