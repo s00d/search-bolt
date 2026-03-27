@@ -1,16 +1,16 @@
 <script setup lang="ts">
-  defineProps<{
-    modelValue: boolean;
-    label?: string;
-  }>();
+defineProps<{
+  modelValue: boolean;
+  label?: string;
+}>();
 
-  defineEmits<{
-    'update:modelValue': [value: boolean];
-  }>();
+defineEmits<{
+  'update:modelValue': [value: boolean];
+}>();
 </script>
 
 <template>
-  <label class="inline-flex items-center cursor-pointer">
+  <label class="inline-flex items-center gap-2 cursor-pointer select-none">
     <div class="relative">
       <input
         type="checkbox"
@@ -19,14 +19,14 @@
         @change="$emit('update:modelValue', !modelValue)"
       />
       <div
-        class="disabled-switch block w-11 h-6 rounded-full transition-colors duration-200"
-        :class="modelValue ? 'bg-blue-600' : 'bg-gray-200'"
-      ></div>
+        class="block w-10 h-5 rounded-full border transition-colors duration-200"
+        :class="modelValue ? 'bg-cyan-500 border-cyan-400' : 'bg-slate-700 border-slate-600'"
+      />
       <div
-        class="absolute left-1 top-1 bg-white w-4 h-4 rounded-full transition-transform duration-200"
+        class="absolute left-0.5 top-0.5 bg-white w-4 h-4 rounded-full transition-transform duration-200"
         :class="modelValue ? 'translate-x-5' : 'translate-x-0'"
-      ></div>
+      />
     </div>
-    <span v-if="label" class="ml-3 text-gray-700">{{ label }}</span>
+    <span v-if="label" class="text-xs text-slate-300">{{ label }}</span>
   </label>
 </template>

@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { ref, onMounted, watch } from 'vue';
+import BaseSwitch from '../BaseSwitch.vue';
 
 const isDark = ref(false);
 
@@ -21,15 +22,9 @@ watch(isDark, updateTheme);
 </script>
 
 <template>
-  <div class="flex items-center space-x-2">
-    <input
-      type="checkbox"
-      id="theme-toggle"
-      v-model="isDark"
-      class="h-4 w-4 rounded border-gray-300 text-indigo-600 focus:ring-indigo-500 dark:border-gray-600 dark:bg-gray-700"
-    >
-    <label for="theme-toggle" class="text-sm text-gray-700 dark:text-gray-300">
-      Dark Mode
-    </label>
-  </div>
+  <BaseSwitch
+    :model-value="isDark"
+    label="Dark mode"
+    @update:model-value="isDark = $event"
+  />
 </template>

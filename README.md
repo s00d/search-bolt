@@ -5,7 +5,7 @@
 
 # search bolt
 
-A modern, visual search tool built with Tauri 2, Vue 3, and Tailwind CSS that provides a user-friendly interface for ripgrep or grep, the blazingly fast search tool.
+A modern, visual search tool built with Tauri 2, Vue 3, and Tailwind CSS that provides a user-friendly interface powered by ripgrep.
 
 ![SearchBolt Screenshot](https://github.com/s00d/search-bolt/blob/main/public/Screenshot.png?raw=true)
 
@@ -29,7 +29,7 @@ A modern, visual search tool built with Tauri 2, Vue 3, and Tailwind CSS that pr
 
 - [Node.js](https://nodejs.org/) (v16 or later)
 - [Rust](https://www.rust-lang.org/tools/install)
-- [ripgrep](https://github.com/BurntSushi/ripgrep#installation) installed on your system
+- No external search binary required (ripgrep is linked directly in the Rust backend)
 
 ## Development Setup
 
@@ -80,7 +80,7 @@ The built application will be available in the `src-tauri/target/release` direct
 - [Tauri 2](https://tauri.app/) - Desktop application framework
 - [Vue 3](https://vuejs.org/) - Frontend framework
 - [Tailwind CSS](https://tailwindcss.com/) - Utility-first CSS framework
-- [ripgrep](https://github.com/BurntSushi/ripgrep) - Search tool
+- [ripgrep](https://github.com/BurntSushi/ripgrep) crates - In-process search engine in Rust backend
 - [highlight.js](https://highlightjs.org/) - Syntax highlighting
 - [HeadlessUI](https://headlessui.dev/) - Unstyled UI components
 

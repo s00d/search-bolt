@@ -11,7 +11,7 @@ export const clickOutside = {
       }
     };
 
-    // Добавляем небольшую задержку перед активацией обработчика
+    // Delay activation slightly to avoid immediate close on mount.
     el._clickOutsideTimer = window.setTimeout(() => {
       if (el._clickOutside) {
         document.addEventListener('mousedown', el._clickOutside);

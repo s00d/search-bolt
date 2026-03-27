@@ -25,17 +25,17 @@ function truncateText(text: string): string {
 <template>
   <div
     v-if="show && items.length > 0"
-    class="absolute z-10 w-full mt-1 bg-white border rounded-md shadow-lg text-sm"
+    class="absolute z-20 w-full mt-1 bg-slate-900 border border-slate-700 rounded-md shadow-xl text-xs"
     v-click-outside="() => emit('close')"
   >
-    <div class="p-1.5 flex justify-between items-center border-b">
-      <span class="text-gray-600 flex items-center gap-1">
+    <div class="p-2 flex justify-between items-center border-b border-slate-700">
+      <span class="text-slate-300 flex items-center gap-1">
         <ClockIcon class="w-3.5 h-3.5" />
         {{ title || 'Recent' }}
       </span>
       <button
         @click="emit('clear')"
-        class="text-red-500 hover:text-red-600 text-xs"
+        class="text-slate-400 hover:text-red-400"
       >
         Clear
       </button>
@@ -45,7 +45,7 @@ function truncateText(text: string): string {
         v-for="item in items"
         :key="item"
         @click="emit('select', item)"
-        class="w-full px-2 py-1.5 text-left hover:bg-gray-50"
+        class="w-full px-2 py-1.5 text-left text-slate-200 hover:bg-slate-800"
         :class="{ 'truncate': truncate }"
         :title="truncate ? item : undefined"
       >

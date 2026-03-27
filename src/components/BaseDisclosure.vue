@@ -1,15 +1,16 @@
 <script setup lang="ts">
-  import { ref } from 'vue';
+import { ref } from 'vue';
+import { ChevronDownIcon } from '@heroicons/vue/24/outline';
 
-  defineProps<{
-    buttonClass?: string;
-  }>();
+defineProps<{
+  buttonClass?: string;
+}>();
 
-  const isOpen = ref(false);
+const isOpen = ref(false);
 
-  function toggle() {
-    isOpen.value = !isOpen.value;
-  }
+function toggle() {
+  isOpen.value = !isOpen.value;
+}
 </script>
 
 <template>
@@ -17,20 +18,24 @@
     <button
       @click="toggle"
       :class="buttonClass"
+      class="w-full"
     >
-      <slot name="button"></slot>
+      <div class="flex items-center justify-between w-full">
+        <slot name="button" />
+        <ChevronDownIcon class="w-4 h-4 transition-transform" :class="{ 'rotate-180': isOpen }" />
+      </div>
     </button>
 
     <transition
-      enter-active-class="transition duration-100 ease-out"
-      enter-from-class="transform scale-95 opacity-0"
-      enter-to-class="transform scale-100 opacity-100"
-      leave-active-class="transition duration-75 ease-in"
-      leave-from-class="transform scale-100 opacity-100"
-      leave-to-class="transform scale-95 opacity-0"
+      enter-active-class="transition duration-150 ease-out"
+      enter-from-class="transform opacity-0 -translate-y-1"
+      enter-to-class="transform opacity-100 translate-y-0"
+      leave-active-class="transition duration-100 ease-in"
+      leave-from-class="transform opacity-100 translate-y-0"
+      leave-to-class="transform opacity-0 -translate-y-1"
     >
-      <div v-show="isOpen" class="mt-4">
-        <slot></slot>
+      <div v-show="isOpen" class="mt-2">
+        <slot />
       </div>
     </transition>
   </div>

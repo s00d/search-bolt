@@ -1,6 +1,6 @@
 [package]
 name = "search-bolt"
-version = "0.1.6"
+version = "0.2.0"
 description = "A Tauri App"
 authors = ["you"]
 edition = "2021"
@@ -18,10 +18,38 @@ crate-type = ["staticlib", "cdylib", "rlib"]
 tauri-build = { version = "2", features = [] }
 
 [dependencies]
-tauri = { version = "2", features = [] }
-tauri-plugin-shell = "2"
+tauri = { version = "2", features = ["tray-icon"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 tauri-plugin-dialog = "2"
-fix-path-env = { git = "https://github.com/tauri-apps/fix-path-env-rs" }
+tauri-plugin-opener = "2"
+tauri-plugin-global-shortcut = "2"
+ignore = { git = "https://github.com/BurntSushi/ripgrep", package = "ignore" }
+grep-regex = { git = "https://github.com/BurntSushi/ripgrep", package = "grep-regex" }
+grep-searcher = { git = "https://github.com/BurntSushi/ripgrep", package = "grep-searcher" }
+grep-matcher = { git = "https://github.com/BurntSushi/ripgrep", package = "grep-matcher" }
+grep-printer = { git = "https://github.com/BurntSushi/ripgrep", package = "grep-printer" }
+grep = { git = "https://github.com/BurntSushi/ripgrep", package = "grep" }
+regex = "1"
+tauri-plugin-store = "2"
+opensesame = "0.1"
+shlex = "1"
+tauri-plugin-log = "2"
+log = "0.4"
+uuid = { version = "1", features = ["v4"] }
+
+[dev-dependencies]
+tempfile = "3"
+
+[features]
+default = []
+pcre2 = ["dep:grep-pcre2"]
+
+[dependencies.grep-pcre2]
+git = "https://github.com/BurntSushi/ripgrep"
+package = "grep-pcre2"
+optional = true
+
+[target.'cfg(not(any(target_os = "android", target_os = "ios")))'.dependencies]
+tauri-plugin-autostart = "2"
 
